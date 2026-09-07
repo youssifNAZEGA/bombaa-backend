@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Category, Brand
+from .models import Category, Brand, Product,ProductCategory
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -86,3 +86,114 @@ class BrandSerializer(serializers.ModelSerializer):
 
         return value
 
+class ProductSerializer(serializers.ModelSerializer):
+
+    categories = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Category.objects.filter(
+            is_active=True
+        ),
+        required=False,
+    )
+
+    class Meta:
+        model = Product
+
+        fields = [
+            "id",
+            "brand",
+            "name",
+            "slug",
+            "description",
+            "base_price",
+            "categories",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Le nom du produit est obligatoire."
+            )
+
+        return value
+
+    def validate_slug(self, value):
+
+        value = value.strip().lower()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Le slug du produit est obligatoire."
+            )
+
+        return value
+
+    def validate_base_price(self, value):
+
+        if value < 0:
+            raise serializers.ValidationError(
+                "Le prix du produit ne peut pas être négatif."
+            )
+
+        return value
+
+    def create(self, validated_data):
+
+        categories = validated_data.pop(
+            "categories",
+            []
+        )
+
+        product = Product.objects.create(
+            **validated_data
+        )
+
+        ProductCategory.objects.bulk_create([
+            ProductCategory(
+                product=product,
+                category=category
+            )
+            for category in categories
+        ])
+
+        return product
+
+    def update(self, instance, validated_data):
+
+        categories = validated_data.pop(
+            "categories",
+            None
+        )
+
+        instance = super().update(
+            instance,
+            validated_data
+        )
+
+        if categories is not None:
+
+            ProductCategory.objects.filter(
+                product=instance
+            ).delete()
+
+            ProductCategory.objects.bulk_create([
+                ProductCategory(
+                    product=instance,
+                    category=category
+                )
+                for category in categories
+            ])
+
+        return instance

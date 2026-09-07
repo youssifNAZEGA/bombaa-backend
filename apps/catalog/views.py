@@ -2,8 +2,8 @@ from rest_framework import viewsets
 
 from apps.accounts.permissions import HasPermission
 
-from .models import Category, Brand
-from .serializers import CategorySerializer, BrandSerializer
+from .models import Category, Brand,  Product
+from .serializers import CategorySerializer, BrandSerializer,ProductSerializer
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -66,4 +66,32 @@ class BrandViewSet(viewsets.ModelViewSet):
             HasPermission(permission)()
         ]
 
-    
+
+class ProductViewSet(viewsets.ModelViewSet):
+
+    queryset = Product.objects.select_related(
+        "brand"
+    ).all()
+
+    serializer_class = ProductSerializer
+
+    def get_permissions(self):
+
+        if self.action in ["list", "retrieve"]:
+            permission = "products.view"
+
+        elif self.action == "create":
+            permission = "products.create"
+
+        elif self.action in ["update", "partial_update"]:
+            permission = "products.update"
+
+        elif self.action == "destroy":
+            permission = "products.delete"
+
+        else:
+            permission = "products.view"
+
+        return [
+            HasPermission(permission)()
+        ]
