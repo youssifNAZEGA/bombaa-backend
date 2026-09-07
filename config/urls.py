@@ -28,4 +28,8 @@ urlpatterns = [
         "api/",
         include("apps.addresses.urls")
     ),
+    path(
+        "api/",
+        include("apps.catalog.urls")
+    ),
 ]
