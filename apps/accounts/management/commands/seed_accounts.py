@@ -34,6 +34,12 @@ class Command(BaseCommand):
             ("categories.update", "Modifier une catégorie"),
             ("categories.delete", "Supprimer une catégorie"),
 
+            #Brands
+            ("brands.view", "Consulter les marques"),
+            ("brands.create","Créer une marque"),
+            ("brands.update","Modifier une marque"),
+            ("brands.delete", "Supprimer une marque"),
+
             # Produits
             ("products.view", "Consulter les produits"),
             ("products.create", "Créer un produit"),

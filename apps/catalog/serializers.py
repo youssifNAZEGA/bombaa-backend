@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Category
+from .models import Category, Brand
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -53,3 +53,36 @@ class CategorySerializer(serializers.ModelSerializer):
             )
 
         return value
+
+class BrandSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Brand
+
+        fields = [
+            "id",
+            "name",
+            "description",
+            "logo",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Le nom de la marque est obligatoire."
+            )
+
+        return value
+

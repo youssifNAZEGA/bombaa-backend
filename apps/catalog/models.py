@@ -45,3 +45,42 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Brand(models.Model):
+
+    name = models.CharField(
+        max_length=150,
+        unique=True,
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+    )
+
+    logo = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "brands"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
