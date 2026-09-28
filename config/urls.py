@@ -41,4 +41,8 @@ urlpatterns = [
         "api/",
         include("apps.cart.urls")
     ),
+    path(
+        "api/",
+        include("apps.wishlist.urls")
+    ),
 ]
