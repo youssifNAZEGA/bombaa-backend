@@ -45,8 +45,8 @@ urlpatterns = [
         "api/",
         include("apps.wishlist.urls")
     ),
-    # path(
-    #     "api/",
-    #     include("apps.orders.urls")
-    #     ),
+    path(
+        "api/",
+        include("apps.orders.urls")
+    ),
 ]
