@@ -37,4 +37,8 @@ urlpatterns = [
         "api/",
         include("apps.stocks.urls")
     ),
+    path(
+        "api/",
+        include("apps.cart.urls")
+    ),
 ]
