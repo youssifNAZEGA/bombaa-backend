@@ -1,9 +1,10 @@
 from rest_framework.routers import DefaultRouter
-
+from django.urls import path
 from .views import (
     PaymentMethodViewSet,
     PaymentViewSet,
     TransactionViewSet,
+    PayDunyaIPNView,
 )
 
 
@@ -27,4 +28,10 @@ router.register(
     basename="transaction",
 )
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path(
+        "payments/webhooks/paydunya/",
+        PayDunyaIPNView.as_view(),
+        name="paydunya-ipn",
+    ),
+]
