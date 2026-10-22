@@ -4,6 +4,8 @@ import hmac
 from rest_framework.views import APIView
 from django.conf import settings
 from decimal import Decimal
+
+from apps.orders.models import Order
 from .services import PaymentService
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -43,6 +45,7 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
             )
             .prefetch_related("transactions")
         )
+    
 
     @action(
         detail=False,
@@ -127,6 +130,100 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
             serializer.data,
             status=status.HTTP_201_CREATED,
         )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="paydunya/create",
+    )
+    def create_paydunya_payment(self, request):
+        order_id = request.data.get("order_id")
+
+        if not order_id:
+            return Response(
+                {"detail": "order_id est obligatoire."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            order = Order.objects.get(
+                id=order_id,
+                user=request.user,
+            )
+        except Order.DoesNotExist:
+            return Response(
+                {"detail": "Commande introuvable."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        payment_method = PaymentMethod.objects.filter(
+            code="MOBILE_MONEY",
+            is_active=True,
+        ).first()
+
+        if not payment_method:
+            return Response(
+                {
+                    "detail": (
+                        "Le moyen de paiement "
+                        "MOBILE_MONEY est indisponible."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payment = PaymentService.create_payment(
+                order=order,
+                payment_method=payment_method,
+            )
+
+            result = PaymentService.start_paydunya_payment(
+                payment
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "payment": PaymentSerializer(
+                    payment
+                ).data,
+                "checkout_url": result["checkout_url"],
+                "paydunya_token": result["token"],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="paydunya/check",
+    )
+    def paydunya_check(self, request, pk=None):
+        payment = self.get_object()
+
+        try:
+            result = PaymentService.check_paydunya_payment(payment)
+            payment.refresh_from_db()
+
+            return Response(
+                {
+                    "payment": PaymentSerializer(payment).data,
+                    "paydunya": result["paydunya"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 class TransactionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TransactionSerializer
@@ -236,74 +333,60 @@ class PayDunyaIPNView(APIView):
 
         received_amount = invoice.get("total_amount")
 
-        if received_amount is not None:
-            try:
-                received_amount = Decimal(
-                    str(received_amount)
-                )
-            except Exception:
-                return Response(
-                    {
-                        "detail": "Montant PayDunya invalide."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if received_amount is None:
+            return Response(
+                {
+                    "detail": "Montant du paiement manquant dans l'IPN."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            if received_amount != payment.amount:
-                return Response(
-                    {
-                        "detail": "Le montant PayDunya ne correspond pas au paiement BOMBAA."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        try:
+            received_amount = Decimal(str(received_amount))
+        except (ValueError, TypeError, ArithmeticError):
+            return Response(
+                {"detail": "Montant PayDunya invalide."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+        if received_amount != payment.amount:
+            return Response(
+                {
+                    "detail": (
+                        "Le montant PayDunya ne correspond pas "
+                        "au paiement BOMBAA."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
         provider_token = invoice.get("token")
 
-        transaction_obj = (
-            payment.transactions
-            .order_by("-created_at")
-            .first()
-        )
+        # transaction_obj = (
+        #     payment.transactions
+        #     .order_by("-created_at")
+        #     .first()
+        # )
 
-        if transaction_obj and provider_token:
-            transaction_obj.external_reference = provider_token
-            transaction_obj.response_message = (
-                data.get("response_text")
-            )
-            transaction_obj.save(
-                update_fields=[
-                    "external_reference",
-                    "response_message",
-                ]
-            )
+        # if transaction_obj and provider_token:
+        #     transaction_obj.external_reference = provider_token
+        #     transaction_obj.response_message = (
+        #         data.get("response_text")
+        #     )
+        #     transaction_obj.save(
+        #         update_fields=[
+        #             "external_reference",
+        #             "response_message",
+        #         ]
+        #     )
 
-        if payment_status == "completed":
-            PaymentService.mark_payment_success(
-                payment=payment,
-                external_reference=provider_token,
-                response_message=data.get("response_text"),
-            )
-
-        elif payment_status == "failed":
-            PaymentService.mark_payment_failed(
-                payment=payment,
-                response_message=data.get("fail_reason")
-                or data.get("response_text"),
-            )
-
-        elif payment_status == "cancelled":
-            PaymentService.mark_payment_failed(
-                payment=payment,
-                response_message="Paiement annulé par PayDunya.",
-            )
-
-        elif payment_status == "pending":
-            if payment.status == Payment.Status.PENDING:
-                PaymentService.mark_payment_processing(
-                    payment=payment
-                )
-
-        else:
+        
+        if payment_status not in {
+            "completed",
+            "failed",
+            "cancelled",
+            "pending",
+        }:
             return Response(
                 {
                     "detail": (
@@ -314,6 +397,45 @@ class PayDunyaIPNView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            if payment_status == "completed":
+                PaymentService.mark_payment_success(
+                    payment=payment,
+                    external_reference=provider_token,
+                    response_message=data.get("response_text"),
+                )
+
+            elif payment_status == "failed":
+                PaymentService.mark_payment_failed(
+                    payment=payment,
+                    response_message=(
+                        data.get("fail_reason")
+                        or data.get("response_text")
+                    ),
+                )
+
+            elif payment_status == "cancelled":
+                PaymentService.mark_payment_cancelled(
+                    payment=payment,
+                    response_message=(
+                        "Paiement annulé par PayDunya."
+                    ),
+                )
+
+            elif payment_status == "pending":
+                if payment.status == Payment.Status.PENDING:
+                    PaymentService.mark_payment_processing(
+                        payment=payment
+                    )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment.refresh_from_db()
+
         return Response(
             {
                 "success": True,
@@ -322,7 +444,6 @@ class PayDunyaIPNView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
     @staticmethod
     def _extract_data(request):
         """

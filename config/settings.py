@@ -19,7 +19,40 @@ from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
+PAYDUNYA_MODE = os.getenv("PAYDUNYA_MODE", "test")
 PAYDUNYA_MASTER_KEY = os.getenv("PAYDUNYA_MASTER_KEY")
+PAYDUNYA_PRIVATE_KEY = os.getenv("PAYDUNYA_PRIVATE_KEY")
+PAYDUNYA_PUBLIC_KEY = os.getenv("PAYDUNYA_PUBLIC_KEY")
+PAYDUNYA_TOKEN = os.getenv("PAYDUNYA_TOKEN")
+PAYDUNYA_STORE_NAME = os.getenv(
+    "PAYDUNYA_STORE_NAME",
+    "BOMBAA",
+)
+PAYDUNYA_RETURN_URL = os.getenv(
+    "PAYDUNYA_RETURN_URL"
+)
+PAYDUNYA_CANCEL_URL = os.getenv(
+    "PAYDUNYA_CANCEL_URL"
+)
+PAYDUNYA_CALLBACK_URL = os.getenv(
+    "PAYDUNYA_CALLBACK_URL"
+)
+if PAYDUNYA_MODE == "live":
+    PAYDUNYA_CHECKOUT_CREATE_URL = (
+        "https://app.paydunya.com/api/v1/checkout-invoice/create"
+    )
+
+    PAYDUNYA_CHECKOUT_CONFIRM_URL = (
+        "https://app.paydunya.com/api/v1/checkout-invoice/confirm"
+    )
+else:
+    PAYDUNYA_CHECKOUT_CREATE_URL = (
+        "https://app.paydunya.com/sandbox-api/v1/checkout-invoice/create"
+    )
+
+    PAYDUNYA_CHECKOUT_CONFIRM_URL = (
+        "https://app.paydunya.com/sandbox-api/v1/checkout-invoice/confirm"
+    )
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
