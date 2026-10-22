@@ -259,11 +259,18 @@ class PaymentService:
                 "La commande est obligatoire."
             )
 
-        if order.status in [
-            Order.Status.CANCELLED,
-        ]:
+        if order.status != Order.Status.PENDING:
             raise ValueError(
-                "Impossible de payer une commande annulée."
+                "Seule une commande en attente de paiement "
+                "peut être payée "
+                f"(statut actuel : {order.status})."
+            )
+
+        if order.payments.filter(
+            status=Payment.Status.SUCCESS
+        ).exists():
+            raise ValueError(
+                "Cette commande est déjà payée."
             )
 
         # --------------------------------------------------

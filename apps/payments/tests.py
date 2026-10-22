@@ -598,3 +598,141 @@ class PaymentMethodPermissionTests(APITestCase):
         response = self.client.get(self.URL)
 
         self.assertIn(response.status_code, [401, 403])
+
+
+class PaymentCreationRulesTests(TestCase):
+
+    def setUp(self):
+        from apps.accounts.models import User
+        from apps.catalog.models import Product, ProductVariant
+        from apps.stocks.models import Stock
+        from apps.orders.models import Order
+
+        self.user = User.objects.create_user(
+            email="payment-rules@example.com",
+            password="TestPassword123!",
+            first_name="Payment",
+            last_name="Rules",
+            phone="+22890000021",
+        )
+
+        self.product = Product.objects.create(
+            name="Produit règles",
+            slug="produit-regles",
+            base_price=Decimal("5000.00"),
+        )
+
+        self.variant = ProductVariant.objects.create(
+            product=self.product,
+            sku="RULES-001",
+            price=Decimal("5000.00"),
+        )
+
+        Stock.objects.create(
+            variant=self.variant,
+            quantity=10,
+            reserved_quantity=0,
+        )
+
+        self.method = PaymentMethod.objects.create(
+            name="Mobile Money règles",
+            code="RULES_MOBILE_MONEY",
+            is_active=True,
+        )
+
+    def create_order(self, status=Order.Status.PENDING):
+        from apps.orders.models import Order, OrderItem
+
+        order = Order.objects.create(
+            user=self.user,
+            reference=f"CMD-RULES-{status}",
+            status=status,
+            subtotal=Decimal("10000.00"),
+            shipping_cost=Decimal("0.00"),
+            discount_amount=Decimal("0.00"),
+            total_amount=Decimal("10000.00"),
+            currency="XOF",
+        )
+
+        OrderItem.objects.create(
+            order=order,
+            variant=self.variant,
+            product_name=self.product.name,
+            variant_description=self.variant.sku,
+            sku=self.variant.sku,
+            quantity=2,
+            unit_price=self.variant.price,
+            subtotal=Decimal("10000.00"),
+        )
+
+        return order
+
+    def test_payment_rejected_on_confirmed_order(self):
+        order = self.create_order(
+            status=Order.Status.CONFIRMED,
+        )
+
+        with self.assertRaises(ValueError):
+            PaymentService.create_payment(
+                order=order,
+                payment_method=self.method,
+            )
+
+        self.assertFalse(
+            Payment.objects.filter(order=order).exists()
+        )
+
+    def test_payment_rejected_when_order_already_successful(self):
+        order = self.create_order()
+
+        Payment.objects.create(
+            order=order,
+            payment_method=self.method,
+            reference="PAY-ALREADY-SUCCESS",
+            amount=order.total_amount,
+            currency="XOF",
+            status=Payment.Status.SUCCESS,
+        )
+
+        with self.assertRaises(ValueError):
+            PaymentService.create_payment(
+                order=order,
+                payment_method=self.method,
+            )
+
+    def test_payment_allowed_on_pending_order(self):
+        order = self.create_order()
+
+        payment = PaymentService.create_payment(
+            order=order,
+            payment_method=self.method,
+        )
+
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertEqual(payment.amount, order.total_amount)
+        self.assertEqual(
+            payment.transactions.count(),
+            1,
+        )
+
+
+class PaymentEndpointPermissionsTests(APITestCase):
+
+    def test_payment_creation_requires_payment_create_permission(self):
+        user = User.objects.create_user(
+            email="payment-no-role@example.com",
+            password="TestPassword123!",
+            first_name="Sans",
+            last_name="Permission",
+            phone="+22890000022",
+        )
+
+        self.client.force_authenticate(user)
+
+        response = self.client.post(
+            "/api/payments/create/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)

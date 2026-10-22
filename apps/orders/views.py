@@ -1,33 +1,63 @@
-from decimal import Decimal
-from uuid import uuid4
-
-from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.cart.models import Cart
-from apps.stocks.models import Stock
+from apps.accounts.permissions import (
+    HasPermission,
+    user_has_permission,
+)
+from apps.addresses.models import Address
 
-from .models import Order, OrderAddress, OrderItem
+from .models import Order
 from .serializers import OrderSerializer
+from .services import OrderService
 
 
 class OrderViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    """
+    Les clients ne voient que leurs propres commandes.
+    Les administrateurs voient toutes les commandes.
+    """
 
-    def list(self, request):
-        orders = (
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [HasPermission("orders.view")()]
+
+        if self.action == "create":
+            return [HasPermission("orders.create")()]
+
+        if self.action == "update_status":
+            return [HasPermission("orders.update")()]
+
+        # L'annulation vérifie la propriété et le statut
+        # dans OrderService.
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = (
             Order.objects
-            .filter(user=request.user)
             .prefetch_related("items")
             .select_related("shipping_address")
         )
 
+        if (
+            self.request.user.is_staff
+            or user_has_permission(
+                self.request.user,
+                "orders.update",
+            )
+        ):
+            return queryset.all()
+
+        return queryset.filter(user=self.request.user)
+
+    def list(self, request):
         serializer = OrderSerializer(
-            orders,
+            self.get_queryset(),
             many=True,
         )
 
@@ -35,51 +65,16 @@ class OrderViewSet(viewsets.ViewSet):
 
     def retrieve(self, request, pk=None):
         order = get_object_or_404(
-            Order.objects
-            .prefetch_related("items")
-            .select_related("shipping_address"),
+            self.get_queryset(),
             pk=pk,
-            user=request.user,
         )
 
         serializer = OrderSerializer(order)
 
         return Response(serializer.data)
 
-    @transaction.atomic
     def create(self, request):
-        user = request.user
-
-        cart = (
-            Cart.objects
-            .prefetch_related(
-                "items__variant__product"
-            )
-            .filter(user=user)
-            .first()
-        )
-
-        if not cart:
-            return Response(
-                {
-                    "detail": "Votre panier est vide."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        cart_items = list(cart.items.all())
-
-        if not cart_items:
-            return Response(
-                {
-                    "detail": "Votre panier est vide."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        address_id = request.data.get(
-            "address_id"
-        )
+        address_id = request.data.get("address_id")
 
         if not address_id:
             return Response(
@@ -91,194 +86,30 @@ class OrderViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from apps.addresses.models import Address
-
         address = get_object_or_404(
             Address,
             pk=address_id,
-            user=user,
+            user=request.user,
         )
 
-        subtotal = Decimal("0.00")
-
-        checked_items = []
-
-        for cart_item in cart_items:
-            variant = cart_item.variant
-
-            if not variant.is_active:
-                return Response(
-                    {
-                        "detail": (
-                            f"La variante "
-                            f"{variant.sku} n'est plus disponible."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                stock = (
-                    Stock.objects
-                    .select_for_update()
-                    .get(variant=variant)
-                )
-            except Stock.DoesNotExist:
-                return Response(
-                    {
-                        "detail": (
-                            f"Aucun stock n'est configuré "
-                            f"pour {variant.sku}."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            available_quantity = (
-                stock.quantity
-                - stock.reserved_quantity
+        try:
+            order = OrderService.create_order(
+                user=request.user,
+                address=address,
+                notes=request.data.get("notes"),
             )
 
-            if cart_item.quantity > available_quantity:
-                return Response(
-                    {
-                        "detail": (
-                            f"Stock insuffisant pour "
-                            f"{variant.sku}. "
-                            f"Disponible : "
-                            f"{available_quantity}."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            item_subtotal = (
-                variant.price * cart_item.quantity
-            )
-
-            subtotal += item_subtotal
-
-            checked_items.append(
-                {
-                    "cart_item": cart_item,
-                    "variant": variant,
-                    "stock": stock,
-                    "subtotal": item_subtotal,
-                }
-            )
-
-        shipping_cost = Decimal(
-            str(request.data.get(
-                "shipping_cost",
-                "0.00",
-            ))
-        )
-
-        if shipping_cost < 0:
+        except PermissionDenied as exc:
             return Response(
-                {
-                    "shipping_cost": (
-                        "Le coût de livraison "
-                        "ne peut pas être négatif."
-                    )
-                },
+                {"detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        discount_amount = Decimal(
-            str(request.data.get(
-                "discount_amount",
-                "0.00",
-            ))
-        )
-
-        if discount_amount < 0:
-            return Response(
-                {
-                    "discount_amount": (
-                        "La remise ne peut pas être négative."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if discount_amount > subtotal:
-            return Response(
-                {
-                    "discount_amount": (
-                        "La remise ne peut pas dépasser "
-                        "le sous-total."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        total_amount = (
-            subtotal
-            + shipping_cost
-            - discount_amount
-        )
-
-        reference = (
-            f"CMD-{uuid4().hex[:12].upper()}"
-        )
-
-        order = Order.objects.create(
-            user=user,
-            reference=reference,
-            status=Order.Status.PENDING,
-            subtotal=subtotal,
-            shipping_cost=shipping_cost,
-            discount_amount=discount_amount,
-            total_amount=total_amount,
-            currency="XOF",
-            notes=request.data.get("notes"),
-        )
-
-        OrderAddress.objects.create(
-            order=order,
-            recipient_name=(
-                f"{address.first_name} "
-                f"{address.last_name}"
-            ),
-            phone=address.phone,
-            address_line1=address.address_line_1,
-            address_line2=address.address_line_2,
-            city=address.city,
-            state=address.state,
-            postal_code=address.postal_code,
-            country_name=address.country,
-            country_code="",
-        )
-
-        for item_data in checked_items:
-            cart_item = item_data["cart_item"]
-            variant = item_data["variant"]
-            stock = item_data["stock"]
-
-            OrderItem.objects.create(
-                order=order,
-                variant=variant,
-                product_name=variant.product.name,
-                variant_description=variant.sku,
-                sku=variant.sku,
-                quantity=cart_item.quantity,
-                unit_price=variant.price,
-                subtotal=item_data["subtotal"],
-            )
-
-            stock.reserved_quantity += (
-                cart_item.quantity
-            )
-
-            stock.save(
-                update_fields=[
-                    "reserved_quantity",
-                    "updated_at",
-                ]
-            )
-
-        cart.items.all().delete()
 
         serializer = OrderSerializer(order)
 
@@ -286,3 +117,89 @@ class OrderViewSet(viewsets.ViewSet):
             serializer.data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cancel",
+    )
+    def cancel(self, request, pk=None):
+        order = get_object_or_404(
+            self.get_queryset(),
+            pk=pk,
+        )
+
+        try:
+            order = OrderService.cancel_order(
+                order=order,
+                actor=request.user,
+            )
+
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = OrderSerializer(order)
+
+        return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="status",
+    )
+    def update_status(self, request, pk=None):
+        new_status = request.data.get("status")
+
+        valid_statuses = {
+            value
+            for value, _label in Order.Status.choices
+        }
+
+        if new_status not in valid_statuses:
+            return Response(
+                {
+                    "status": (
+                        "Statut de commande invalide. "
+                        f"Valeurs possibles : "
+                        f"{', '.join(sorted(valid_statuses))}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order = get_object_or_404(
+            self.get_queryset(),
+            pk=pk,
+        )
+
+        try:
+            order = OrderService.update_status(
+                order=order,
+                new_status=new_status,
+                actor=request.user,
+            )
+
+        except PermissionDenied as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = OrderSerializer(order)
+
+        return Response(serializer.data)

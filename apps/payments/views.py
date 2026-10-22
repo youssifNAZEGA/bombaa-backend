@@ -48,7 +48,22 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentSerializer
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in [
+            "create_payment",
+            "create_paydunya_payment",
+        ]:
+            return [HasPermission("payments.create")()]
+
+        if self.action in [
+            "list",
+            "retrieve",
+            "paydunya_check",
+        ]:
+            return [HasPermission("payments.view")()]
+
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         return (
@@ -244,7 +259,7 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TransactionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TransactionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [HasPermission("payments.view")]
 
     def get_queryset(self):
         return (
