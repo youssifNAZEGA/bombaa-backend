@@ -5,6 +5,10 @@ from rest_framework.views import APIView
 from django.conf import settings
 from decimal import Decimal
 
+from apps.accounts.permissions import (
+    HasPermission,
+    user_has_permission,
+)
 from apps.orders.models import Order
 from .services import PaymentService
 from rest_framework import status, viewsets
@@ -22,12 +26,25 @@ from .serializers import (
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):
     serializer_class = PaymentMethodSerializer
-    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return PaymentMethod.objects.filter(
-            is_active=True
-        ).order_by("name")
+        queryset = PaymentMethod.objects.order_by("name")
+
+        user = self.request.user
+
+        if not (
+            user.is_staff
+            or user_has_permission(user, "payments.update")
+        ):
+            queryset = queryset.filter(is_active=True)
+
+        return queryset
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [IsAuthenticated()]
+
+        return [HasPermission("payments.update")()]
 
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentSerializer

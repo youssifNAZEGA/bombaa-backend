@@ -480,3 +480,121 @@ class PayDunyaIPNTests(APITestCase):
         )
 
 
+
+
+class PaymentMethodPermissionTests(APITestCase):
+
+    URL = "/api/payment-methods/"
+
+    def setUp(self):
+        from apps.accounts.models import Permission, Role
+
+        self.client_user = User.objects.create_user(
+            email="method-client@example.com",
+            password="TestPassword123!",
+            first_name="Client",
+            last_name="Method",
+        )
+
+        self.admin_user = User.objects.create_user(
+            email="method-admin@example.com",
+            password="TestPassword123!",
+            first_name="Admin",
+            last_name="Method",
+        )
+
+        role = Role.objects.create(
+            name="TEST_PAYMENTS_ADMIN",
+            description="Rôle de test pour les moyens de paiement",
+        )
+
+        permission = Permission.objects.create(
+            name="payments.update",
+            description="Modifier les paiements",
+        )
+
+        role.permissions.add(permission)
+        self.admin_user.roles.add(role)
+
+        self.active_method = PaymentMethod.objects.create(
+            name="Moyen actif",
+            code="TEST_ACTIVE",
+            is_active=True,
+        )
+
+        self.inactive_method = PaymentMethod.objects.create(
+            name="Moyen inactif",
+            code="TEST_INACTIVE",
+            is_active=False,
+        )
+
+    def test_client_only_sees_active_methods(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.get(self.URL)
+
+        self.assertEqual(response.status_code, 200)
+
+        codes = [
+            method["code"]
+            for method in response.data["results"]
+        ]
+
+        self.assertIn(self.active_method.code, codes)
+        self.assertNotIn(self.inactive_method.code, codes)
+
+    def test_admin_sees_active_and_inactive_methods(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.get(self.URL)
+
+        self.assertEqual(response.status_code, 200)
+
+        codes = [
+            method["code"]
+            for method in response.data["results"]
+        ]
+
+        self.assertIn(self.active_method.code, codes)
+        self.assertIn(self.inactive_method.code, codes)
+
+    def test_client_cannot_create_payment_method(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.post(
+            self.URL,
+            {
+                "name": "Moyen pirate",
+                "code": "PIRATE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            PaymentMethod.objects.filter(code="PIRATE").exists()
+        )
+
+    def test_admin_can_create_payment_method(self):
+        self.client.force_authenticate(self.admin_user)
+
+        response = self.client.post(
+            self.URL,
+            {
+                "name": "Nouveau moyen",
+                "code": "NEW_METHOD",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            PaymentMethod.objects.filter(
+                code="NEW_METHOD"
+            ).exists()
+        )
+
+    def test_anonymous_cannot_list_payment_methods(self):
+        response = self.client.get(self.URL)
+
+        self.assertIn(response.status_code, [401, 403])

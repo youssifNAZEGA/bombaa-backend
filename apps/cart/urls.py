@@ -11,11 +11,8 @@ add_item_view = CartViewSet.as_view({
     "post": "add_item",
 })
 
-update_item_view = CartViewSet.as_view({
+item_detail_view = CartViewSet.as_view({
     "patch": "update_item",
-})
-
-remove_item_view = CartViewSet.as_view({
     "delete": "remove_item",
 })
 
@@ -37,13 +34,8 @@ urlpatterns = [
     ),
     path(
         "cart/items/<int:item_id>/",
-        update_item_view,
-        name="cart-update-item",
-    ),
-    path(
-        "cart/items/<int:item_id>/",
-        remove_item_view,
-        name="cart-remove-item",
+        item_detail_view,
+        name="cart-item-detail",
     ),
     path(
         "cart/clear/",

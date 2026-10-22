@@ -110,8 +110,13 @@ class RegisterSerializer(serializers.ModelSerializer):
             **validated_data
         )
 
-        client_role = Role.objects.get(
-            name="CLIENT"
+        client_role, _ = Role.objects.get_or_create(
+            name="CLIENT",
+            defaults={
+                "description": (
+                    "Client de la plateforme BOMBAA"
+                ),
+            },
         )
 
         user.roles.add(client_role)

@@ -307,32 +307,6 @@ class AttributeValueSerializer(serializers.ModelSerializer):
 
         return value
 
-class AttributeValueSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = AttributeValue
-
-        fields = [
-            "id",
-            "attribute",
-            "value",
-        ]
-
-        read_only_fields = [
-            "id",
-        ]
-
-    def validate_value(self, value):
-
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError(
-                "La valeur de l'attribut est obligatoire."
-            )
-
-        return value
-
 class ProductVariantSerializer(serializers.ModelSerializer):
 
     class Meta:
