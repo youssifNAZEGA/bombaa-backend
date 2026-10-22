@@ -1,8 +1,14 @@
+from django.db.models import F, Max, Min, Q
+from django.db.models.functions import Coalesce
+from django_filters.rest_framework import DjangoFilterBackend
+
 from rest_framework import viewsets
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny
 
 from apps.accounts.permissions import HasPermission, user_has_permission
 
+from .filters import ProductFilter
 from .models import (
     Category, 
     Brand,  
@@ -22,6 +28,8 @@ from .serializers import (
     AttributeValueSerializer,
     ProductVariantSerializer,
     VariantAttributeValueSerializer,
+    ProductListSerializer,
+    ProductDetailSerializer,
     )
 
 
@@ -50,6 +58,22 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         if not can_manage_catalog(self.request.user):
             queryset = queryset.filter(is_active=True)
+
+        parent = self.request.query_params.get("parent")
+
+        if parent == "root":
+            queryset = queryset.filter(parent__isnull=True)
+
+        elif parent:
+            if not parent.isdigit():
+                return queryset.none()
+
+            queryset = queryset.filter(parent_id=parent)
+
+        search = self.request.query_params.get("search")
+
+        if search:
+            queryset = queryset.filter(name__icontains=search)
 
         return queryset
 
@@ -86,6 +110,11 @@ class BrandViewSet(viewsets.ModelViewSet):
         if not can_manage_catalog(self.request.user):
             queryset = queryset.filter(is_active=True)
 
+        search = self.request.query_params.get("search")
+
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+
         return queryset
 
     def get_permissions(self):
@@ -110,20 +139,109 @@ class BrandViewSet(viewsets.ModelViewSet):
         ]
 
 
+class ProductOrderingFilter(OrderingFilter):
+    """
+    Accepte les alias de tri utilisés par le front :
+    price, -price et newest.
+    """
+
+    aliases = {
+        "price": "base_price",
+        "-price": "-base_price",
+        "newest": "-created_at",
+        "-newest": "created_at",
+    }
+
+    def get_ordering(self, request, queryset, view):
+        ordering = super().get_ordering(
+            request,
+            queryset,
+            view,
+        )
+
+        if not ordering:
+            return ordering
+
+        return [
+            self.aliases.get(item, item)
+            for item in ordering
+        ]
+
+
 class ProductViewSet(viewsets.ModelViewSet):
 
-    serializer_class = ProductSerializer
+    filter_backends = [
+        DjangoFilterBackend,
+        SearchFilter,
+        ProductOrderingFilter,
+    ]
+
+    filterset_class = ProductFilter
+
+    search_fields = [
+        "name",
+        "description",
+        "brand__name",
+        "variants__sku",
+        "product_categories__category__name",
+    ]
+
+    ordering_fields = [
+        "base_price",
+        "price",
+        "name",
+        "created_at",
+        "newest",
+    ]
+
+    ordering = ["name"]
 
     def get_queryset(self):
 
-        queryset = Product.objects.select_related(
-            "brand"
-        ).all()
+        queryset = (
+            Product.objects
+            .select_related("brand")
+            .prefetch_related(
+                "images",
+                "product_categories__category",
+                "variants__stock",
+                (
+                    "variants__variant_attribute_values"
+                    "__attribute_value__attribute"
+                ),
+            )
+            .annotate(
+                price_min=Coalesce(
+                    Min(
+                        "variants__price",
+                        filter=Q(variants__is_active=True),
+                    ),
+                    F("base_price"),
+                ),
+                price_max=Coalesce(
+                    Max(
+                        "variants__price",
+                        filter=Q(variants__is_active=True),
+                    ),
+                    F("base_price"),
+                ),
+            )
+            .distinct()
+        )
 
         if not can_manage_catalog(self.request.user):
             queryset = queryset.filter(is_active=True)
 
         return queryset
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return ProductListSerializer
+
+        if self.action == "retrieve":
+            return ProductDetailSerializer
+
+        return ProductSerializer
 
     def get_permissions(self):
 
@@ -161,6 +279,14 @@ class ProductImageViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 product__is_active=True
             )
+
+        product = self.request.query_params.get("product")
+
+        if product:
+            if not product.isdigit():
+                return queryset.none()
+
+            queryset = queryset.filter(product_id=product)
 
         return queryset
 
@@ -216,9 +342,18 @@ class ProductImageViewSet(viewsets.ModelViewSet):
 
 class AttributeViewSet(viewsets.ModelViewSet):
 
-    queryset = Attribute.objects.all()
-
     serializer_class = AttributeSerializer
+
+    def get_queryset(self):
+
+        queryset = Attribute.objects.all()
+
+        search = self.request.query_params.get("search")
+
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+
+        return queryset
 
     def get_permissions(self):
 
@@ -244,11 +379,23 @@ class AttributeViewSet(viewsets.ModelViewSet):
 
 class AttributeValueViewSet(viewsets.ModelViewSet):
 
-    queryset = AttributeValue.objects.select_related(
-        "attribute"
-    ).all()
-
     serializer_class = AttributeValueSerializer
+
+    def get_queryset(self):
+
+        queryset = AttributeValue.objects.select_related(
+            "attribute"
+        ).all()
+
+        attribute = self.request.query_params.get("attribute")
+
+        if attribute:
+            if not attribute.isdigit():
+                return queryset.none()
+
+            queryset = queryset.filter(attribute_id=attribute)
+
+        return queryset
 
     def get_permissions(self):
 
@@ -288,6 +435,31 @@ class ProductVariantViewSet(viewsets.ModelViewSet):
                 product__is_active=True,
             )
 
+        product = self.request.query_params.get("product")
+
+        if product:
+            if not product.isdigit():
+                return queryset.none()
+
+            queryset = queryset.filter(product_id=product)
+
+        is_active = self.request.query_params.get("is_active")
+
+        if is_active is not None:
+            normalized = is_active.strip().lower()
+
+            if normalized not in {"true", "false", "1", "0"}:
+                return queryset.none()
+
+            queryset = queryset.filter(
+                is_active=normalized in {"true", "1"}
+            )
+
+        search = self.request.query_params.get("search")
+
+        if search:
+            queryset = queryset.filter(sku__icontains=search)
+
         return queryset
 
     def get_permissions(self):
@@ -325,7 +497,7 @@ class VariantAttributeValueViewSet(viewsets.ModelViewSet):
                 "attribute_value",
                 "attribute_value__attribute",
             )
-            .all()
+            .order_by("variant_id", "attribute_value_id")
         )
 
         if not can_manage_catalog(self.request.user):
@@ -333,6 +505,14 @@ class VariantAttributeValueViewSet(viewsets.ModelViewSet):
                 variant__is_active=True,
                 variant__product__is_active=True,
             )
+
+        variant = self.request.query_params.get("variant")
+
+        if variant:
+            if not variant.isdigit():
+                return queryset.none()
+
+            queryset = queryset.filter(variant_id=variant)
 
         return queryset
 

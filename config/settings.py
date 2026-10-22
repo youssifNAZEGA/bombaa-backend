@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "corsheaders",
+    "django_filters",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     'apps.accounts',
@@ -189,10 +190,9 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "DEFAULT_PAGINATION_CLASS": (
-        "rest_framework.pagination.PageNumberPagination"
+        "config.pagination.StandardResultsSetPagination"
     ),
     "PAGE_SIZE": 20,
-    "PAGE_SIZE_QUERY_PARAM": "page_size",
 }
 
 
