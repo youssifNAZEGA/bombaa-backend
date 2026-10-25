@@ -7,6 +7,8 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
 from apps.accounts.permissions import user_has_permission
+from apps.audit.models import AuditLog
+from apps.audit.services import AuditService
 from apps.cart.models import Cart
 from apps.notifications.services import NotificationService
 from apps.payments.models import Payment, Transaction
@@ -324,6 +326,8 @@ class OrderService:
                 f"depuis le statut {order.status}."
             )
 
+        previous_status = order.status
+
         cls._cancel_active_payments(order)
         cls._restore_stock(order)
 
@@ -336,6 +340,22 @@ class OrderService:
         )
 
         NotificationService.order_cancelled(order)
+
+        AuditService.log(
+            action=AuditLog.Action.CANCEL,
+            actor=actor,
+            target=order,
+            changes={
+                "status": {
+                    "before": previous_status,
+                    "after": order.status,
+                }
+            },
+            metadata={
+                "reference": order.reference,
+                "user_id": order.user_id,
+            },
+        )
 
         return order
 
@@ -388,6 +408,22 @@ class OrderService:
         NotificationService.order_status_changed(
             order,
             previous_status=previous_status,
+        )
+
+        AuditService.log(
+            action=AuditLog.Action.STATUS_CHANGE,
+            actor=actor,
+            target=order,
+            changes={
+                "status": {
+                    "before": previous_status,
+                    "after": order.status,
+                }
+            },
+            metadata={
+                "reference": order.reference,
+                "user_id": order.user_id,
+            },
         )
 
         return order

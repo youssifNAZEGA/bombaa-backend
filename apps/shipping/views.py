@@ -6,6 +6,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasPermission, user_has_permission
+from apps.audit.models import AuditLog
+from apps.audit.services import AuditService
 from apps.geography.serializers import CountrySummarySerializer
 from apps.notifications.services import NotificationService
 
@@ -275,6 +277,17 @@ class DeliveryViewSet(viewsets.ModelViewSet):
             previous_status=None,
         )
 
+        AuditService.log(
+            action=AuditLog.Action.CREATE,
+            actor=self.request.user,
+            target=delivery,
+            metadata={
+                "order_id": delivery.order_id,
+                "status": delivery.status,
+            },
+            request=self.request,
+        )
+
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
         delivery = serializer.save()
@@ -282,6 +295,44 @@ class DeliveryViewSet(viewsets.ModelViewSet):
         NotificationService.delivery_status_changed(
             delivery,
             previous_status=previous_status,
+        )
+
+        AuditService.log(
+            action=(
+                AuditLog.Action.STATUS_CHANGE
+                if previous_status != delivery.status
+                else AuditLog.Action.UPDATE
+            ),
+            actor=self.request.user,
+            target=delivery,
+            changes=(
+                {
+                    "status": {
+                        "before": previous_status,
+                        "after": delivery.status,
+                    }
+                }
+                if previous_status != delivery.status
+                else {}
+            ),
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance):
+        delivery_id = instance.pk
+        order_id = instance.order_id
+        delivery_status = instance.status
+
+        instance.delete()
+
+        AuditService.log(
+            action=AuditLog.Action.DELETE,
+            actor=self.request.user,
+            target_type="shipping.delivery",
+            target_id=str(delivery_id),
+            target_repr=f"Livraison commande {order_id}",
+            metadata={"status": delivery_status},
+            request=self.request,
         )
 
 

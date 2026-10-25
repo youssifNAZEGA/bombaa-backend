@@ -7,6 +7,8 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny
 
 from apps.accounts.permissions import HasPermission, user_has_permission
+from apps.audit.models import AuditLog
+from apps.audit.services import AuditService
 from apps.notifications.services import NotificationService
 
 from .filters import ProductFilter
@@ -270,6 +272,66 @@ class ProductViewSet(viewsets.ModelViewSet):
         product = serializer.save()
 
         NotificationService.new_product(product)
+
+        AuditService.log(
+            action=AuditLog.Action.CREATE,
+            actor=self.request.user,
+            target=product,
+            metadata={
+                "name": product.name,
+                "brand_id": product.brand_id,
+            },
+            request=self.request,
+        )
+
+    def perform_update(self, serializer):
+        product = serializer.instance
+
+        before = {
+            "name": product.name,
+            "base_price": str(product.base_price),
+            "is_active": product.is_active,
+        }
+
+        product = serializer.save()
+
+        after = {
+            "name": product.name,
+            "base_price": str(product.base_price),
+            "is_active": product.is_active,
+        }
+
+        changes = {
+            field: {
+                "before": before[field],
+                "after": after[field],
+            }
+            for field in before
+            if before[field] != after[field]
+        }
+
+        AuditService.log(
+            action=AuditLog.Action.UPDATE,
+            actor=self.request.user,
+            target=product,
+            changes=changes,
+            request=self.request,
+        )
+
+    def perform_destroy(self, instance):
+        product_id = instance.pk
+        product_name = instance.name
+
+        instance.delete()
+
+        AuditService.log(
+            action=AuditLog.Action.DELETE,
+            actor=self.request.user,
+            target_type="catalog.product",
+            target_id=str(product_id),
+            target_repr=product_name,
+            request=self.request,
+        )
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):

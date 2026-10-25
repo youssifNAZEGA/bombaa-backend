@@ -121,6 +121,7 @@ INSTALLED_APPS = [
     'apps.shipping',
     'apps.notifications',
     'apps.dashboard',
+    'apps.audit',
 ]
 
 MIDDLEWARE = [

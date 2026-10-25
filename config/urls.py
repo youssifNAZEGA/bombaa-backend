@@ -73,4 +73,9 @@ urlpatterns = [
         "api/",
         include("apps.dashboard.urls")
     ),
+
+    path(
+        "api/",
+        include("apps.audit.urls")
+    ),
 ]

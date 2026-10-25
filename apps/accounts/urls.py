@@ -1,16 +1,38 @@
 from django.urls import path
 
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    AdminUserViewSet,
     LoginView,
+    PermissionViewSet,
     RegisterView,
+    RoleViewSet,
     me_view,
     profile_view,
     change_password_view,
     logout_view,
     test_products_view,
     test_products_create,
+)
+
+
+router = DefaultRouter()
+router.register(
+    "users",
+    AdminUserViewSet,
+    basename="admin-user",
+)
+router.register(
+    "roles",
+    RoleViewSet,
+    basename="role",
+)
+router.register(
+    "permissions",
+    PermissionViewSet,
+    basename="permission",
 )
 
 
@@ -70,4 +92,4 @@ urlpatterns = [
         test_products_create,
         name="test-products-create",
     ),
-]
+] + router.urls

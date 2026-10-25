@@ -98,6 +98,9 @@ class Command(BaseCommand):
             # Tableau de bord
             ("dashboard.view", "Consulter le tableau de bord"),
 
+            # Journal d'activité
+            ("audit.view", "Consulter le journal d'activité"),
+
             # Support
             ("support.view", "Consulter le support"),
             ("support.create", "Créer un ticket support"),
@@ -194,6 +197,120 @@ class Command(BaseCommand):
             permission_objects[name]
             for name in client_permission_names
         )
+
+        # ==========================
+        # RÔLES ADMINISTRATEURS SPÉCIALISÉS
+        # ==========================
+
+        specialized_roles = {
+            "PRODUCT_MANAGER": {
+                "description": (
+                    "Gestion du catalogue et des produits"
+                ),
+                "permissions": [
+                    "categories.view",
+                    "categories.create",
+                    "categories.update",
+                    "categories.delete",
+                    "brands.view",
+                    "brands.create",
+                    "brands.update",
+                    "brands.delete",
+                    "products.view",
+                    "products.create",
+                    "products.update",
+                    "products.delete",
+                    "dashboard.view",
+                ],
+            },
+            "ORDER_MANAGER": {
+                "description": (
+                    "Gestion et suivi des commandes"
+                ),
+                "permissions": [
+                    "orders.view",
+                    "orders.update",
+                    "payments.view",
+                    "users.view",
+                    "shipping.view",
+                    "notifications.view",
+                    "dashboard.view",
+                ],
+            },
+            "STOCK_MANAGER": {
+                "description": (
+                    "Gestion des stocks et des disponibilités"
+                ),
+                "permissions": [
+                    "products.view",
+                    "products.update",
+                    "dashboard.view",
+                ],
+            },
+            "DELIVERY_MANAGER": {
+                "description": (
+                    "Gestion des livraisons et des zones"
+                ),
+                "permissions": [
+                    "shipping.view",
+                    "shipping.create",
+                    "shipping.update",
+                    "shipping.delete",
+                    "orders.view",
+                    "countries.view",
+                    "currencies.view",
+                    "dashboard.view",
+                ],
+            },
+            "FINANCE_MANAGER": {
+                "description": (
+                    "Gestion des paiements et remboursements"
+                ),
+                "permissions": [
+                    "orders.view",
+                    "payments.view",
+                    "payments.update",
+                    "refunds.view",
+                    "refunds.create",
+                    "refunds.update",
+                    "dashboard.view",
+                ],
+            },
+            "SUPPORT_MANAGER": {
+                "description": (
+                    "Gestion du service client et du support"
+                ),
+                "permissions": [
+                    "users.view",
+                    "orders.view",
+                    "notifications.view",
+                    "support.view",
+                    "support.create",
+                    "support.update",
+                    "dashboard.view",
+                ],
+            },
+        }
+
+        for role_name, role_data in specialized_roles.items():
+            role, created = Role.objects.get_or_create(
+                name=role_name,
+                defaults={
+                    "description": role_data["description"],
+                },
+            )
+
+            if created:
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Rôle {role_name} créé"
+                    )
+                )
+
+            role.permissions.set(
+                permission_objects[name]
+                for name in role_data["permissions"]
+            )
 
         self.stdout.write("")
         self.stdout.write(
