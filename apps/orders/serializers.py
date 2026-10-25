@@ -19,6 +19,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "quantity",
             "unit_price",
             "subtotal",
+            "discount_amount",
         ]
         read_only_fields = fields
 
@@ -62,6 +63,10 @@ class OrderSerializer(serializers.ModelSerializer):
             "subtotal",
             "shipping_cost",
             "shipping_weight_grams",
+            "promotion_discount",
+            "coupon_discount",
+            "coupon_code",
+            "discount_details",
             "discount_amount",
             "total_amount",
             "currency",

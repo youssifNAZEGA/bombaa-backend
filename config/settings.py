@@ -122,6 +122,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.dashboard',
     'apps.audit',
+    'apps.promotions',
 ]
 
 MIDDLEWARE = [

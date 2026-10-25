@@ -403,6 +403,7 @@ class NotificationService:
         title="Promotion",
         message=None,
         recipients=None,
+        data=None,
     ):
         if message is None:
             message = (
@@ -411,17 +412,20 @@ class NotificationService:
                 else "Profitez de notre nouvelle promotion."
             )
 
+        payload = (
+            {"product_id": product.id}
+            if product is not None
+            else {}
+        )
+        payload.update(data or {})
+
         return cls.broadcast(
             event=Notification.Event.PROMOTION,
             title=title,
             message=message,
             recipients=recipients,
             product=product,
-            data=(
-                {"product_id": product.id}
-                if product is not None
-                else {}
-            ),
+            data=payload,
         )
 
     @classmethod

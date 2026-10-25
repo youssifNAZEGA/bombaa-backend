@@ -78,4 +78,9 @@ urlpatterns = [
         "api/",
         include("apps.audit.urls")
     ),
+
+    path(
+        "api/",
+        include("apps.promotions.urls")
+    ),
 ]

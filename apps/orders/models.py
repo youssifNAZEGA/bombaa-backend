@@ -51,6 +51,31 @@ class Order(models.Model):
         default=0,
     )
 
+    promotion_discount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+
+    coupon_discount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+
+    coupon_code = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+    )
+
+    discount_details = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
     discount_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -195,6 +220,13 @@ class OrderItem(models.Model):
     subtotal = models.DecimalField(
         max_digits=12,
         decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+
+    discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0.00"))],
     )
 

@@ -34,6 +34,7 @@ from apps.notifications.models import (
     Notification,
     NotificationPreference,
 )
+from apps.promotions.models import Coupon, Promotion
 from decimal import Decimal
 
 class Command(BaseCommand):
@@ -55,6 +56,7 @@ class Command(BaseCommand):
         self.seed_shipping()
         self.seed_products()
         self.seed_stocks()
+        self.seed_promotions()
         self.seed_addresses()
         self.seed_carts()
         self.seed_wishlists()
@@ -1222,6 +1224,92 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 "✓ Stocks et mouvements initiaux créés."
+            )
+        )
+
+    def seed_promotions(self):
+
+        now = timezone.now()
+
+        clothing_category = Category.objects.filter(
+            slug="vetements"
+        ).first()
+
+        classic_tshirt = Product.objects.filter(
+            slug="t-shirt-bombaa-classic"
+        ).first()
+
+        togo = Country.objects.filter(code="TG").first()
+
+        promotion, created = Promotion.objects.update_or_create(
+            name="Promotion BOMBAA -10 %",
+            defaults={
+                "description": (
+                    "Profitez de 10 % de réduction sur "
+                    "la collection BOMBAA."
+                ),
+                "discount_type": "PERCENTAGE",
+                "value": Decimal("10.00"),
+                "starts_at": now - timedelta(days=1),
+                "ends_at": now + timedelta(days=30),
+                "is_active": True,
+            },
+        )
+
+        promotion.products.clear()
+        promotion.categories.clear()
+        promotion.brands.clear()
+        promotion.countries.clear()
+
+        if clothing_category is not None:
+            promotion.categories.add(clothing_category)
+
+        if classic_tshirt is not None:
+            promotion.products.add(classic_tshirt)
+
+        if togo is not None:
+            promotion.countries.add(togo)
+
+        coupon, created = Coupon.objects.update_or_create(
+            code="BOMBAA10",
+            defaults={
+                "description": (
+                    "Coupon de bienvenue BOMBAA : -10 % "
+                    "dès 10 000 XOF d'achat."
+                ),
+                "discount_type": "PERCENTAGE",
+                "value": Decimal("10.00"),
+                "minimum_amount": Decimal("10000.00"),
+                "max_uses": 500,
+                "starts_at": now - timedelta(days=1),
+                "ends_at": now + timedelta(days=90),
+                "is_active": True,
+            },
+        )
+
+        coupon.products.clear()
+        coupon.categories.clear()
+        coupon.countries.clear()
+
+        if clothing_category is not None:
+            coupon.categories.add(clothing_category)
+
+        if togo is not None:
+            coupon.countries.add(togo)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  → Promotion : {promotion.name}"
+            )
+        )
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  → Coupon : {coupon.code}"
+            )
+        )
+        self.stdout.write(
+            self.style.SUCCESS(
+                "✓ Promotions et coupons de démonstration créés."
             )
         )
 

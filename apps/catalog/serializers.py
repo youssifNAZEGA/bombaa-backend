@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -6,6 +7,7 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 from apps.geography.models import Country
+from apps.promotions.services import PromotionService
 
 from .models import (
     Category, 
@@ -510,6 +512,55 @@ class VariantAttributeValueReadSerializer(
         ]
 
 
+def _money_string(value):
+    return str(
+        Decimal(value or "0.00").quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+
+
+def _promotion_summary(promotion):
+    if promotion is None:
+        return None
+
+    return {
+        "id": promotion.id,
+        "name": promotion.name,
+        "discount_type": promotion.discount_type,
+        "value": str(promotion.value),
+        "ends_at": promotion.ends_at,
+    }
+
+
+def _serializer_promotions(serializer):
+    promotions = serializer.context.get("promotions")
+
+    if promotions is None:
+        promotions = PromotionService.active_promotions(
+            country=serializer.context.get("country")
+        )
+
+    return promotions
+
+
+def _discount_percentage(amount, discount):
+    amount = Decimal(amount or "0.00")
+
+    if amount <= 0 or discount <= 0:
+        return "0.00"
+
+    return str(
+        (
+            Decimal(discount) / amount * Decimal("100")
+        ).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+
+
 class ProductVariantReadSerializer(
     serializers.ModelSerializer
 ):
@@ -522,6 +573,12 @@ class ProductVariantReadSerializer(
 
     stock = serializers.SerializerMethodField()
 
+    promotion = serializers.SerializerMethodField()
+    has_promotion = serializers.SerializerMethodField()
+    discount_amount = serializers.SerializerMethodField()
+    discount_percentage = serializers.SerializerMethodField()
+    price_after_discount = serializers.SerializerMethodField()
+
     class Meta:
         model = ProductVariant
         fields = [
@@ -531,7 +588,50 @@ class ProductVariantReadSerializer(
             "is_active",
             "attributes",
             "stock",
+            "promotion",
+            "has_promotion",
+            "discount_amount",
+            "discount_percentage",
+            "price_after_discount",
         ]
+
+    def _best_promotion(self, obj):
+        if not hasattr(self, "_promotion_cache"):
+            self._promotion_cache = {}
+
+        if obj.id not in self._promotion_cache:
+            self._promotion_cache[obj.id] = (
+                PromotionService.best_promotion_for_amount(
+                    product=obj.product,
+                    amount=obj.price,
+                    promotions=_serializer_promotions(self),
+                    country=self.context.get("country"),
+                )
+            )
+
+        return self._promotion_cache[obj.id]
+
+    def get_promotion(self, obj):
+        promotion, _discount = self._best_promotion(obj)
+        return _promotion_summary(promotion)
+
+    def get_has_promotion(self, obj):
+        _promotion, discount = self._best_promotion(obj)
+        return discount > 0
+
+    def get_discount_amount(self, obj):
+        _promotion, discount = self._best_promotion(obj)
+        return _money_string(discount)
+
+    def get_discount_percentage(self, obj):
+        _promotion, discount = self._best_promotion(obj)
+        return _discount_percentage(obj.price, discount)
+
+    def get_price_after_discount(self, obj):
+        _promotion, discount = self._best_promotion(obj)
+        return _money_string(
+            max(Decimal(obj.price) - discount, Decimal("0.00"))
+        )
 
     def get_stock(self, obj):
 
@@ -614,7 +714,88 @@ def product_primary_image_data(product):
     return ProductImageReadSerializer(primary_image).data
 
 
-class ProductListSerializer(serializers.ModelSerializer):
+class PromotionDisplayMixin:
+    def _best_promotion_for_price(self, obj, price):
+        if not hasattr(self, "_product_promotion_cache"):
+            self._product_promotion_cache = {}
+
+        cache_key = (obj.id, _money_string(price))
+
+        if cache_key not in self._product_promotion_cache:
+            self._product_promotion_cache[cache_key] = (
+                PromotionService.best_promotion_for_amount(
+                    product=obj,
+                    amount=price,
+                    promotions=_serializer_promotions(self),
+                    country=self.context.get("country"),
+                )
+            )
+
+        return self._product_promotion_cache[cache_key]
+
+    def _price_min(self, obj):
+        return obj.price_min or obj.base_price
+
+    def _price_max(self, obj):
+        return obj.price_max or obj.base_price
+
+    def get_promotion(self, obj):
+        promotion, _discount = self._best_promotion_for_price(
+            obj,
+            self._price_min(obj),
+        )
+        return _promotion_summary(promotion)
+
+    def get_has_promotion(self, obj):
+        _promotion, discount = self._best_promotion_for_price(
+            obj,
+            self._price_min(obj),
+        )
+        return discount > 0
+
+    def get_discount_percentage(self, obj):
+        _promotion, discount = self._best_promotion_for_price(
+            obj,
+            self._price_min(obj),
+        )
+        return _discount_percentage(
+            self._price_min(obj),
+            discount,
+        )
+
+    def get_price_min_after_discount(self, obj):
+        _promotion, discount = self._best_promotion_for_price(
+            obj,
+            self._price_min(obj),
+        )
+        return _money_string(
+            max(
+                Decimal(self._price_min(obj)) - discount,
+                Decimal("0.00"),
+            )
+        )
+
+    def get_price_max_after_discount(self, obj):
+        promotion, _discount = self._best_promotion_for_price(
+            obj,
+            self._price_min(obj),
+        )
+        price_max = Decimal(self._price_max(obj))
+
+        if promotion is None:
+            return _money_string(price_max)
+
+        discount = promotion.calculate_discount(price_max)
+
+        return _money_string(
+            max(price_max - discount, Decimal("0.00"))
+        )
+
+
+class ProductListSerializer(
+    PromotionDisplayMixin,
+    serializers.ModelSerializer,
+):
 
     brand = BrandSummarySerializer(read_only=True)
 
@@ -638,6 +819,16 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     in_stock = serializers.SerializerMethodField()
 
+    promotion = serializers.SerializerMethodField()
+    has_promotion = serializers.SerializerMethodField()
+    discount_percentage = serializers.SerializerMethodField()
+    price_min_after_discount = (
+        serializers.SerializerMethodField()
+    )
+    price_max_after_discount = (
+        serializers.SerializerMethodField()
+    )
+
     class Meta:
         model = Product
         fields = [
@@ -651,6 +842,11 @@ class ProductListSerializer(serializers.ModelSerializer):
             "weight_grams",
             "price_min",
             "price_max",
+            "price_min_after_discount",
+            "price_max_after_discount",
+            "promotion",
+            "has_promotion",
+            "discount_percentage",
             "primary_image",
             "in_stock",
             "is_active",
@@ -670,7 +866,10 @@ class ProductListSerializer(serializers.ModelSerializer):
         return product_is_in_stock(obj)
 
 
-class ProductDetailSerializer(serializers.ModelSerializer):
+class ProductDetailSerializer(
+    PromotionDisplayMixin,
+    serializers.ModelSerializer,
+):
 
     brand = BrandSummarySerializer(read_only=True)
 
@@ -702,6 +901,16 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
     in_stock = serializers.SerializerMethodField()
 
+    promotion = serializers.SerializerMethodField()
+    has_promotion = serializers.SerializerMethodField()
+    discount_percentage = serializers.SerializerMethodField()
+    price_min_after_discount = (
+        serializers.SerializerMethodField()
+    )
+    price_max_after_discount = (
+        serializers.SerializerMethodField()
+    )
+
     class Meta:
         model = Product
         fields = [
@@ -714,6 +923,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "weight_grams",
             "price_min",
             "price_max",
+            "price_min_after_discount",
+            "price_max_after_discount",
+            "promotion",
+            "has_promotion",
+            "discount_percentage",
             "categories",
             "available_countries",
             "images",

@@ -91,6 +91,18 @@ class Command(BaseCommand):
             ("refunds.create", "Créer un remboursement"),
             ("refunds.update", "Modifier un remboursement"),
 
+            # Promotions
+            ("promotions.view", "Consulter les promotions"),
+            ("promotions.create", "Créer une promotion"),
+            ("promotions.update", "Modifier une promotion"),
+            ("promotions.delete", "Supprimer une promotion"),
+
+            # Coupons
+            ("coupons.view", "Consulter les coupons"),
+            ("coupons.create", "Créer un coupon"),
+            ("coupons.update", "Modifier un coupon"),
+            ("coupons.delete", "Supprimer un coupon"),
+
             # Notifications
             ("notifications.view", "Consulter les notifications"),
             ("notifications.create", "Créer une notification"),
@@ -287,6 +299,28 @@ class Command(BaseCommand):
                     "support.view",
                     "support.create",
                     "support.update",
+                    "dashboard.view",
+                ],
+            },
+            "MARKETING_MANAGER": {
+                "description": (
+                    "Gestion des promotions, coupons et "
+                    "communications marketing"
+                ),
+                "permissions": [
+                    "products.view",
+                    "categories.view",
+                    "brands.view",
+                    "promotions.view",
+                    "promotions.create",
+                    "promotions.update",
+                    "promotions.delete",
+                    "coupons.view",
+                    "coupons.create",
+                    "coupons.update",
+                    "coupons.delete",
+                    "notifications.view",
+                    "notifications.create",
                     "dashboard.view",
                 ],
             },

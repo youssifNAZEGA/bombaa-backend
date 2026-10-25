@@ -7,6 +7,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.catalog.models import ProductVariant
+from apps.promotions.services import (
+    CouponService,
+    PricingService,
+)
+from apps.shipping.services import ShippingService
 
 from .models import Cart, CartItem
 from .serializers import CartItemSerializer, CartSerializer
@@ -21,20 +26,59 @@ class CartViewSet(viewsets.ViewSet):
         )
         return cart
 
-    def list(self, request):
-        cart = self.get_cart(request.user)
+    def get_country(self, request):
+        value = request.query_params.get("country")
 
-        cart = (
+        if value:
+            return ShippingService.find_country(value)
+
+        addresses = (
+            request.user.addresses
+            .select_related("country_ref")
+            .order_by("-is_default", "-created_at")
+        )
+
+        address = addresses.first()
+
+        if address is None:
+            return None
+
+        if address.country_ref_id:
+            return address.country_ref
+
+        return ShippingService.find_country(address.country)
+
+    def get_cart_for_response(self, cart):
+        return (
             Cart.objects
+            .select_related("coupon")
             .prefetch_related(
-                "items__variant__product"
+                "items__variant__product",
+                (
+                    "items__variant__product"
+                    "__product_categories"
+                ),
             )
             .get(pk=cart.pk)
         )
 
-        serializer = CartSerializer(cart)
+    def cart_response(self, request, cart):
+        cart = self.get_cart_for_response(cart)
+
+        serializer = CartSerializer(
+            cart,
+            context={
+                "request": request,
+                "country": self.get_country(request),
+            },
+        )
 
         return Response(serializer.data)
+
+    def list(self, request):
+        cart = self.get_cart(request.user)
+
+        return self.cart_response(request, cart)
 
     @action(
         detail=False,
@@ -198,6 +242,79 @@ class CartViewSet(viewsets.ViewSet):
 
     @action(
         detail=False,
+        methods=["post"],
+        url_path="coupon",
+    )
+    @transaction.atomic
+    def apply_coupon(self, request):
+        code = request.data.get("code")
+
+        if not code:
+            return Response(
+                {
+                    "code": "Le code coupon est obligatoire."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        coupon = CouponService.find_by_code(code)
+
+        if coupon is None:
+            return Response(
+                {
+                    "code": "Code coupon invalide."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cart = self.get_cart(request.user)
+        country = self.get_country(request)
+
+        try:
+            PricingService.price_cart(
+                cart,
+                country=country,
+                coupon=coupon,
+                strict_coupon=True,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cart.coupon = coupon
+        cart.save(
+            update_fields=[
+                "coupon",
+                "updated_at",
+            ]
+        )
+
+        return self.cart_response(request, cart)
+
+    @action(
+        detail=False,
+        methods=["delete"],
+        url_path="coupon",
+    )
+    @transaction.atomic
+    def remove_coupon(self, request):
+        cart = self.get_cart(request.user)
+
+        cart.coupon = None
+        cart.save(
+            update_fields=[
+                "coupon",
+                "updated_at",
+            ]
+        )
+
+        return self.cart_response(request, cart)
+
+    @action(
+        detail=False,
         methods=["delete"],
         url_path="clear",
     )
@@ -206,6 +323,15 @@ class CartViewSet(viewsets.ViewSet):
         cart = self.get_cart(request.user)
 
         cart.items.all().delete()
+
+        if cart.coupon_id is not None:
+            cart.coupon = None
+            cart.save(
+                update_fields=[
+                    "coupon",
+                    "updated_at",
+                ]
+            )
 
         return Response(
             {

@@ -128,6 +128,10 @@ class OrderViewSet(viewsets.ViewSet):
                 address=address,
                 shipping_method=shipping_method,
                 notes=request.data.get("notes"),
+                coupon_code=(
+                    request.data.get("coupon_code")
+                    or request.data.get("coupon")
+                ),
             )
 
         except PermissionDenied as exc:

@@ -12,6 +12,11 @@ from apps.audit.services import AuditService
 from apps.cart.models import Cart
 from apps.notifications.services import NotificationService
 from apps.payments.models import Payment, Transaction
+from apps.promotions.models import Coupon, CouponRedemption
+from apps.promotions.services import (
+    CouponService,
+    PricingService,
+)
 from apps.shipping.models import Delivery
 from apps.shipping.services import ShippingService
 from apps.stocks.models import Stock, StockMovement
@@ -71,10 +76,15 @@ class OrderService:
         address,
         shipping_method=None,
         notes=None,
+        coupon_code=None,
     ):
         """
         Crée une commande à partir du panier de l'utilisateur,
         réserve le stock et vide le panier.
+
+        Les promotions sont calculées automatiquement. Un coupon
+        peut être appliqué depuis le panier ou fourni au checkout.
+        Le client ne peut jamais imposer un montant de remise.
         """
 
         if address.user_id != user.id:
@@ -177,28 +187,82 @@ class OrderService:
                 "à cette adresse."
             )
 
+        coupon = None
+        normalized_coupon_code = str(
+            coupon_code or ""
+        ).strip()
+
+        if normalized_coupon_code:
+            coupon = (
+                Coupon.objects
+                .select_for_update()
+                .filter(
+                    code__iexact=normalized_coupon_code
+                )
+                .first()
+            )
+
+            if coupon is None:
+                raise ValueError("Code coupon invalide.")
+
+        elif cart.coupon_id is not None:
+            coupon = (
+                Coupon.objects
+                .select_for_update()
+                .filter(pk=cart.coupon_id)
+                .first()
+            )
+
+        pricing = PricingService.price_cart(
+            cart,
+            country=country,
+            coupon=coupon,
+            strict_coupon=True,
+        )
+
+        subtotal = pricing.subtotal
+        promotion_discount = pricing.promotion_discount
+        coupon_discount = pricing.coupon_discount
+        discount_amount = pricing.discount_amount
+
         shipping_quote = ShippingService.quote(
             country=country,
             method=shipping_method,
             weight_grams=total_weight_grams,
         )
 
-        # Les remises seront calculées par le module coupons.
-        # Le client ne peut jamais imposer un montant.
         shipping_cost = shipping_quote.cost
-        discount_amount = Decimal("0.00")
 
-        total_amount = (
-            subtotal
-            + shipping_cost
-            - discount_amount
-        )
+        total_amount = pricing.total_amount + shipping_cost
+
+        if total_amount < 0:
+            total_amount = Decimal("0.00")
 
         order_currency = (
             shipping_quote.currency.code
             if shipping_quote.currency is not None
             else "XOF"
         )
+
+        discount_details = {
+            "promotions": [
+                {
+                    "id": promotion["id"],
+                    "name": promotion["name"],
+                    "discount": str(promotion["discount"]),
+                }
+                for promotion in pricing.applied_promotions
+            ],
+            "coupon": (
+                {
+                    "id": coupon.id,
+                    "code": coupon.code,
+                    "discount": str(coupon_discount),
+                }
+                if coupon is not None
+                else None
+            ),
+        }
 
         order = Order.objects.create(
             user=user,
@@ -207,6 +271,10 @@ class OrderService:
             subtotal=subtotal,
             shipping_cost=shipping_cost,
             shipping_weight_grams=total_weight_grams,
+            promotion_discount=promotion_discount,
+            coupon_discount=coupon_discount,
+            coupon_code=coupon.code if coupon is not None else "",
+            discount_details=discount_details,
             discount_amount=discount_amount,
             total_amount=total_amount,
             currency=order_currency,
@@ -242,10 +310,16 @@ class OrderService:
                 ),
             )
 
+        priced_items = {
+            item.cart_item.id: item
+            for item in pricing.items
+        }
+
         for item_data in checked_items:
             cart_item = item_data["cart_item"]
             variant = item_data["variant"]
             stock = item_data["stock"]
+            priced_item = priced_items.get(cart_item.id)
 
             OrderItem.objects.create(
                 order=order,
@@ -256,6 +330,11 @@ class OrderService:
                 quantity=cart_item.quantity,
                 unit_price=variant.price,
                 subtotal=item_data["subtotal"],
+                discount_amount=(
+                    priced_item.promotion_discount
+                    if priced_item is not None
+                    else Decimal("0.00")
+                ),
             )
 
             stock.reserved_quantity += (
@@ -269,7 +348,24 @@ class OrderService:
                 ]
             )
 
+        if coupon is not None:
+            CouponRedemption.objects.create(
+                coupon=coupon,
+                user=user,
+                order=order,
+                discount_amount=coupon_discount,
+            )
+
         cart.items.all().delete()
+
+        if cart.coupon_id is not None:
+            cart.coupon = None
+            cart.save(
+                update_fields=[
+                    "coupon",
+                    "updated_at",
+                ]
+            )
 
         NotificationService.order_created(order)
 
@@ -337,6 +433,11 @@ class OrderService:
                 "status",
                 "updated_at",
             ]
+        )
+
+        CouponService.release_for_order(
+            order,
+            actor=actor,
         )
 
         NotificationService.order_cancelled(order)

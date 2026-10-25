@@ -10,6 +10,8 @@ from apps.accounts.permissions import HasPermission, user_has_permission
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.notifications.services import NotificationService
+from apps.promotions.services import PromotionService
+from apps.shipping.services import ShippingService
 
 from .filters import ProductFilter
 from .models import (
@@ -246,6 +248,24 @@ class ProductViewSet(viewsets.ModelViewSet):
             return ProductDetailSerializer
 
         return ProductSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        country_value = self.request.query_params.get("country")
+        country = (
+            ShippingService.find_country(country_value)
+            if country_value
+            else None
+        )
+
+        context["country"] = country
+        context["promotions"] = (
+            PromotionService.active_promotions(
+                country=country
+            )
+        )
+
+        return context
 
     def get_permissions(self):
 
