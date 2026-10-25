@@ -57,6 +57,24 @@ class Command(BaseCommand):
             ("payments.create", "Créer un paiement"),
             ("payments.update", "Modifier un paiement"),
 
+            # Pays
+            ("countries.view", "Consulter les pays"),
+            ("countries.create", "Créer un pays"),
+            ("countries.update", "Modifier un pays"),
+            ("countries.delete", "Supprimer un pays"),
+
+            # Devises
+            ("currencies.view", "Consulter les devises"),
+            ("currencies.create", "Créer une devise"),
+            ("currencies.update", "Modifier une devise"),
+            ("currencies.delete", "Supprimer une devise"),
+
+            # Livraison
+            ("shipping.view", "Consulter la livraison"),
+            ("shipping.create", "Créer un paramètre de livraison"),
+            ("shipping.update", "Modifier la livraison"),
+            ("shipping.delete", "Supprimer un paramètre de livraison"),
+
             # Avis
             ("reviews.view", "Consulter les avis"),
             ("reviews.create", "Créer un avis"),
@@ -141,6 +159,10 @@ class Command(BaseCommand):
         client_permission_names = [
             "products.view",
             "categories.view",
+
+            "countries.view",
+            "currencies.view",
+            "shipping.view",
 
             "orders.view",
             "orders.create",

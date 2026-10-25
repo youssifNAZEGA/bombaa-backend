@@ -60,6 +60,15 @@ class Address(models.Model):
         max_length=100,
     )
 
+    country_ref = models.ForeignKey(
+        "geography.Country",
+        on_delete=models.SET_NULL,
+        related_name="addresses",
+        db_column="country_id",
+        null=True,
+        blank=True,
+    )
+
     is_default = models.BooleanField(
         default=False,
     )

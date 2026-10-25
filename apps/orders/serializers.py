@@ -1,4 +1,8 @@
+from django.core.exceptions import ObjectDoesNotExist
+
 from rest_framework import serializers
+
+from apps.shipping.serializers import DeliverySerializer
 
 from .models import Order, OrderAddress, OrderItem
 
@@ -47,6 +51,8 @@ class OrderSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    delivery = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
         fields = [
@@ -55,15 +61,25 @@ class OrderSerializer(serializers.ModelSerializer):
             "status",
             "subtotal",
             "shipping_cost",
+            "shipping_weight_grams",
             "discount_amount",
             "total_amount",
             "currency",
             "notes",
             "shipping_address",
+            "delivery",
             "items",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_delivery(self, obj):
+        try:
+            delivery = obj.delivery
+        except ObjectDoesNotExist:
+            return None
+
+        return DeliverySerializer(delivery).data
 
         

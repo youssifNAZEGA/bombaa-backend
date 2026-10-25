@@ -6,10 +6,17 @@ from apps.accounts.models import Permission, Role, User
 from apps.addresses.models import Address
 from apps.cart.models import Cart, CartItem
 from apps.catalog.models import Product, ProductVariant
+from apps.geography.models import Country, Currency
 from apps.payments.models import Payment, PaymentMethod, Transaction
+from apps.shipping.models import (
+    Delivery,
+    ShippingMethod,
+    ShippingRate,
+    ShippingZone,
+)
 from apps.stocks.models import Stock, StockMovement
 
-from .models import Order, OrderItem
+from .models import Order, OrderAddress, OrderItem
 
 
 PERMISSION_NAMES = [
@@ -446,3 +453,214 @@ class OrderListingTests(OrderTestBase):
 
         self.assertIn(own_order.id, ids)
         self.assertIn(other_order.id, ids)
+
+
+class OrderShippingTests(OrderTestBase):
+
+    def setUp(self):
+        super().setUp()
+
+        self.xof = Currency.objects.create(
+            code="XOF",
+            name="Franc CFA",
+            symbol="FCFA",
+            exchange_rate=Decimal("1.000000"),
+            is_base=True,
+        )
+
+        self.togo = Country.objects.create(
+            name="Togo",
+            code="TG",
+            phone_code="+228",
+            currency=self.xof,
+        )
+
+        self.address.country_ref = self.togo
+        self.address.save(
+            update_fields=[
+                "country_ref",
+                "updated_at",
+            ]
+        )
+
+        self.product.weight_grams = 500
+        self.product.save(
+            update_fields=[
+                "weight_grams",
+                "updated_at",
+            ]
+        )
+
+        self.standard = ShippingMethod.objects.create(
+            name="Standard",
+            code="ORDER_STANDARD",
+            estimated_days=3,
+        )
+
+        self.express = ShippingMethod.objects.create(
+            name="Express",
+            code="ORDER_EXPRESS",
+            estimated_days=1,
+        )
+
+        self.zone = ShippingZone.objects.create(
+            name="Zone Togo commandes",
+        )
+        self.zone.countries.add(self.togo)
+
+        self.light_rate = ShippingRate.objects.create(
+            zone=self.zone,
+            method=self.standard,
+            min_weight_grams=0,
+            max_weight_grams=1000,
+            price=Decimal("1500.00"),
+            currency=self.xof,
+        )
+
+        self.heavy_rate = ShippingRate.objects.create(
+            zone=self.zone,
+            method=self.standard,
+            min_weight_grams=1001,
+            max_weight_grams=5000,
+            price=Decimal("2500.00"),
+            currency=self.xof,
+        )
+
+        self.express_rate = ShippingRate.objects.create(
+            zone=self.zone,
+            method=self.express,
+            min_weight_grams=0,
+            max_weight_grams=5000,
+            price=Decimal("3000.00"),
+            currency=self.xof,
+        )
+
+    def post_order(self, payload=None, quantity=2):
+        cart = Cart.objects.create(user=self.client_user)
+
+        CartItem.objects.create(
+            cart=cart,
+            variant=self.variant,
+            quantity=quantity,
+        )
+
+        self.client.force_authenticate(self.client_user)
+
+        data = {
+            "address_id": self.address.id,
+        }
+
+        if payload:
+            data.update(payload)
+
+        return self.client.post(
+            "/api/orders/",
+            data,
+            format="json",
+        )
+
+    def test_create_order_calculates_shipping_cost_server_side(self):
+        response = self.post_order({
+            "shipping_cost": "99999.00",
+            "discount_amount": "10000.00",
+        })
+
+        self.assertEqual(response.status_code, 201)
+
+        order = Order.objects.get(user=self.client_user)
+
+        self.assertEqual(order.subtotal, Decimal("10000.00"))
+        self.assertEqual(order.shipping_cost, Decimal("1500.00"))
+        self.assertEqual(order.shipping_weight_grams, 1000)
+        self.assertEqual(order.discount_amount, Decimal("0.00"))
+        self.assertEqual(order.total_amount, Decimal("11500.00"))
+        self.assertEqual(order.currency, "XOF")
+
+        shipping_address = OrderAddress.objects.get(order=order)
+
+        self.assertEqual(shipping_address.country_code, "TG")
+        self.assertEqual(shipping_address.country_name, "Togo")
+
+        delivery = Delivery.objects.get(order=order)
+
+        self.assertEqual(delivery.shipping_method, self.standard)
+        self.assertEqual(
+            delivery.status,
+            Delivery.Status.PENDING,
+        )
+        self.assertIsNotNone(delivery.estimated_delivery_date)
+
+        self.assertEqual(
+            response.data["delivery"]["shipping_method_detail"]["code"],
+            "ORDER_STANDARD",
+        )
+
+    def test_create_order_uses_selected_shipping_method(self):
+        response = self.post_order({
+            "shipping_method_id": self.express.id,
+        })
+
+        self.assertEqual(response.status_code, 201)
+
+        order = Order.objects.get(user=self.client_user)
+
+        self.assertEqual(order.shipping_cost, Decimal("3000.00"))
+        self.assertEqual(order.total_amount, Decimal("13000.00"))
+
+        delivery = Delivery.objects.get(order=order)
+
+        self.assertEqual(delivery.shipping_method, self.express)
+
+    def test_create_order_uses_weight_based_shipping_rate(self):
+        self.product.weight_grams = 600
+        self.product.save(
+            update_fields=[
+                "weight_grams",
+                "updated_at",
+            ]
+        )
+
+        response = self.post_order()
+
+        self.assertEqual(response.status_code, 201)
+
+        order = Order.objects.get(user=self.client_user)
+
+        self.assertEqual(order.shipping_weight_grams, 1200)
+        self.assertEqual(order.shipping_cost, Decimal("2500.00"))
+        self.assertEqual(order.total_amount, Decimal("12500.00"))
+
+    def test_create_order_rejects_unknown_shipping_method(self):
+        response = self.post_order({
+            "shipping_method_id": 999999,
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Order.objects.filter(user=self.client_user).exists()
+        )
+
+    def test_create_order_rejects_country_without_shipping_zone(self):
+        france = Country.objects.create(
+            name="France",
+            code="FR",
+            phone_code="+33",
+            currency=self.xof,
+        )
+
+        self.address.country = "France"
+        self.address.country_ref = france
+        self.address.save(
+            update_fields=[
+                "country",
+                "country_ref",
+                "updated_at",
+            ]
+        )
+
+        response = self.post_order()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Order.objects.filter(user=self.client_user).exists()
+        )

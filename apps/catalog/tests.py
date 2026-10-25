@@ -3,6 +3,7 @@ from decimal import Decimal
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
+from apps.geography.models import Country, Currency
 from apps.stocks.models import Stock
 
 from .models import (
@@ -795,3 +796,115 @@ class CatalogAuxiliaryFilterTests(ProductCatalogTestBase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 2)
+
+
+class ProductCountryAvailabilityTests(ProductCatalogTestBase):
+
+    def setUp(self):
+        super().setUp()
+
+        self.xof = Currency.objects.create(
+            code="XOF",
+            name="Franc CFA",
+            symbol="FCFA",
+            exchange_rate=Decimal("1.000000"),
+            is_base=True,
+        )
+
+        self.togo = Country.objects.create(
+            name="Togo",
+            code="TG",
+            phone_code="+228",
+            currency=self.xof,
+        )
+
+        self.france = Country.objects.create(
+            name="France",
+            code="FR",
+            phone_code="+33",
+            currency=self.xof,
+        )
+
+        self.ghana = Country.objects.create(
+            name="Ghana",
+            code="GH",
+            phone_code="+233",
+            currency=self.xof,
+        )
+
+        self.red_tshirt.available_countries.add(self.togo)
+        self.blue_tshirt.available_countries.add(self.france)
+
+    def test_product_filter_by_country(self):
+        self.assertEqual(
+            self.product_ids("?country=TG"),
+            {
+                self.red_tshirt.id,
+                self.runner.id,
+                self.accessory.id,
+            },
+        )
+
+        self.assertEqual(
+            self.product_ids("?country=FR"),
+            {
+                self.blue_tshirt.id,
+                self.runner.id,
+                self.accessory.id,
+            },
+        )
+
+        self.assertEqual(
+            self.product_ids("?country=GH"),
+            {
+                self.runner.id,
+                self.accessory.id,
+            },
+        )
+
+        self.assertEqual(
+            self.product_ids(f"?country={self.togo.id}"),
+            {
+                self.red_tshirt.id,
+                self.runner.id,
+                self.accessory.id,
+            },
+        )
+
+        self.assertEqual(
+            self.product_ids("?country=ZZ"),
+            set(),
+        )
+
+    def test_product_detail_exposes_available_countries(self):
+        response = self.client.get(
+            f"/api/products/{self.red_tshirt.id}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["available_countries"],
+            [
+                {
+                    "id": self.togo.id,
+                    "name": "Togo",
+                    "code": "TG",
+                }
+            ],
+        )
+
+    def test_product_weight_is_exposed(self):
+        self.red_tshirt.weight_grams = 750
+        self.red_tshirt.save(
+            update_fields=[
+                "weight_grams",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.get(
+            f"/api/products/{self.red_tshirt.id}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["weight_grams"], 750)

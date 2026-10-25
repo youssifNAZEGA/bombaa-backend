@@ -47,6 +47,10 @@ class Order(models.Model):
         validators=[MinValueValidator(Decimal("0.00"))],
     )
 
+    shipping_weight_grams = models.PositiveIntegerField(
+        default=0,
+    )
+
     discount_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,

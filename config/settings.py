@@ -110,6 +110,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     'apps.accounts',
+    'apps.geography',
     'apps.addresses',
     'apps.catalog',
     'apps.stocks',
@@ -117,6 +118,7 @@ INSTALLED_APPS = [
     'apps.wishlist',
     'apps.orders',
     'apps.payments',
+    'apps.shipping',
 ]
 
 MIDDLEWARE = [

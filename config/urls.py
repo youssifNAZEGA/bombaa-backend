@@ -26,6 +26,10 @@ urlpatterns = [
     ),
     path(
         "api/",
+        include("apps.geography.urls")
+    ),
+    path(
+        "api/",
         include("apps.addresses.urls")
     ),
     path(
@@ -53,5 +57,10 @@ urlpatterns = [
     path(
         "api/",
         include("apps.payments.urls")
+    ),
+
+    path(
+        "api/",
+        include("apps.shipping.urls")
     ),
 ]

@@ -1,4 +1,6 @@
 
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -18,6 +20,13 @@ from apps.catalog.models import (
     
 )
 from apps.payments.models import PaymentMethod, Payment,Transaction
+from apps.geography.models import Country, Currency
+from apps.shipping.models import (
+    Delivery,
+    ShippingMethod,
+    ShippingRate,
+    ShippingZone,
+)
 from apps.cart.models import Cart, CartItem
 from apps.wishlist.models import Wishlist, WishlistItem
 from apps.orders.models import Order, OrderAddress, OrderItem
@@ -38,12 +47,15 @@ class Command(BaseCommand):
         self.seed_users()
         self.seed_catalog()
         self.seed_payment_methods()
+        self.seed_geography()
+        self.seed_shipping()
         self.seed_products()
         self.seed_stocks()
         self.seed_addresses()
         self.seed_carts()
         self.seed_wishlists()
         self.seed_orders()
+        self.seed_deliveries()
         self.seed_payments()
 
 
@@ -228,8 +240,16 @@ class Command(BaseCommand):
             },
         ]
 
+        countries = {
+            country.name.lower(): country
+            for country in Country.objects.all()
+        }
+
         for data in addresses:
             user = User.objects.get(email=data["email"])
+            country_ref = countries.get(
+                data["country"].strip().lower()
+            )
 
             # On cherche une adresse existante avec le même label
             address = Address.objects.filter(
@@ -242,6 +262,7 @@ class Command(BaseCommand):
                     if field != "email":
                         setattr(address, field, value)
 
+                address.country_ref = country_ref
                 address.save()
             else:
                 Address.objects.create(
@@ -256,6 +277,7 @@ class Command(BaseCommand):
                     state=data["state"],
                     postal_code=data["postal_code"],
                     country=data["country"],
+                    country_ref=country_ref,
                     is_default=data["is_default"],
                 )
 
@@ -481,7 +503,247 @@ class Command(BaseCommand):
                 f"  → Paiement : {method.name}"
             )
 
+    # ==========================================================
+    # PAYS / DEVISES
+    # ==========================================================
 
+    def seed_geography(self):
+
+        currencies = [
+            {
+                "code": "XOF",
+                "name": "Franc CFA",
+                "symbol": "FCFA",
+                "exchange_rate": Decimal("1.000000"),
+                "is_base": True,
+            },
+            {
+                "code": "EUR",
+                "name": "Euro",
+                "symbol": "€",
+                "exchange_rate": Decimal("655.957000"),
+                "is_base": False,
+            },
+            {
+                "code": "USD",
+                "name": "Dollar américain",
+                "symbol": "$",
+                "exchange_rate": Decimal("600.000000"),
+                "is_base": False,
+            },
+            {
+                "code": "GBP",
+                "name": "Livre sterling",
+                "symbol": "£",
+                "exchange_rate": Decimal("770.000000"),
+                "is_base": False,
+            },
+        ]
+
+        currency_by_code = {}
+
+        for data in currencies:
+            currency, _ = Currency.objects.update_or_create(
+                code=data["code"],
+                defaults={
+                    "name": data["name"],
+                    "symbol": data["symbol"],
+                    "exchange_rate": data["exchange_rate"],
+                    "is_base": data["is_base"],
+                    "is_active": True,
+                },
+            )
+            currency_by_code[currency.code] = currency
+
+        countries = [
+            {
+                "name": "Togo",
+                "code": "TG",
+                "phone_code": "+228",
+                "currency": "XOF",
+            },
+            {
+                "name": "Bénin",
+                "code": "BJ",
+                "phone_code": "+229",
+                "currency": "XOF",
+            },
+            {
+                "name": "Côte d'Ivoire",
+                "code": "CI",
+                "phone_code": "+225",
+                "currency": "XOF",
+            },
+            {
+                "name": "Sénégal",
+                "code": "SN",
+                "phone_code": "+221",
+                "currency": "XOF",
+            },
+            {
+                "name": "France",
+                "code": "FR",
+                "phone_code": "+33",
+                "currency": "EUR",
+            },
+        ]
+
+        country_by_code = {}
+
+        for data in countries:
+            country, _ = Country.objects.update_or_create(
+                code=data["code"],
+                defaults={
+                    "name": data["name"],
+                    "phone_code": data["phone_code"],
+                    "currency": currency_by_code[data["currency"]],
+                    "is_active": True,
+                },
+            )
+            country_by_code[country.code] = country
+
+        methods = {
+            method.code: method
+            for method in PaymentMethod.objects.all()
+        }
+
+        country_payment_methods = {
+            "TG": ["MOBILE_MONEY", "CASH_ON_DELIVERY"],
+            "BJ": ["MOBILE_MONEY", "CASH_ON_DELIVERY"],
+            "CI": ["MOBILE_MONEY", "CASH_ON_DELIVERY"],
+            "SN": ["MOBILE_MONEY", "CASH_ON_DELIVERY"],
+            "FR": ["CARD", "BANK_TRANSFER"],
+        }
+
+        for country_code, method_codes in country_payment_methods.items():
+            country = country_by_code[country_code]
+
+            country.payment_methods.set([
+                methods[code]
+                for code in method_codes
+                if code in methods
+            ])
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Devises et pays de test créés/mis à jour."
+            )
+        )
+
+    # ==========================================================
+    # LIVRAISON
+    # ==========================================================
+
+    def seed_shipping(self):
+
+        xof = Currency.objects.get(code="XOF")
+
+        methods = {}
+
+        for data in [
+            {
+                "name": "Livraison standard",
+                "code": "STANDARD",
+                "description": "Livraison économique.",
+                "carrier": "BOMBAA Logistics",
+                "estimated_days": 3,
+            },
+            {
+                "name": "Livraison express",
+                "code": "EXPRESS",
+                "description": "Livraison rapide.",
+                "carrier": "BOMBAA Logistics",
+                "estimated_days": 1,
+            },
+        ]:
+            method, _ = ShippingMethod.objects.update_or_create(
+                code=data["code"],
+                defaults={
+                    "name": data["name"],
+                    "description": data["description"],
+                    "carrier": data["carrier"],
+                    "estimated_days": data["estimated_days"],
+                    "is_active": True,
+                },
+            )
+            methods[method.code] = method
+
+        zones = {}
+
+        for data in [
+            {
+                "name": "Togo",
+                "country_codes": ["TG"],
+            },
+            {
+                "name": "Afrique de l'Ouest",
+                "country_codes": ["BJ", "CI", "SN"],
+            },
+            {
+                "name": "Europe",
+                "country_codes": ["FR"],
+            },
+            {
+                "name": "International",
+                "country_codes": [],
+            },
+        ]:
+            zone, _ = ShippingZone.objects.update_or_create(
+                name=data["name"],
+                defaults={"is_active": True},
+            )
+            zone.countries.set(
+                Country.objects.filter(
+                    code__in=data["country_codes"]
+                )
+            )
+            zones[zone.name] = zone
+
+        rates = [
+            # Togo
+            ("Togo", "STANDARD", 0, 1000, "1500.00"),
+            ("Togo", "STANDARD", 1001, 5000, "2500.00"),
+            ("Togo", "STANDARD", 5001, None, "4000.00"),
+            ("Togo", "EXPRESS", 0, 5000, "4000.00"),
+            ("Togo", "EXPRESS", 5001, None, "6000.00"),
+            # Afrique de l'Ouest
+            ("Afrique de l'Ouest", "STANDARD", 0, 5000, "5000.00"),
+            ("Afrique de l'Ouest", "STANDARD", 5001, None, "7500.00"),
+            ("Afrique de l'Ouest", "EXPRESS", 0, 5000, "8000.00"),
+            # Europe
+            ("Europe", "STANDARD", 0, 5000, "10000.00"),
+            ("Europe", "STANDARD", 5001, None, "15000.00"),
+            ("Europe", "EXPRESS", 0, 5000, "20000.00"),
+            # International
+            ("International", "STANDARD", 0, 5000, "25000.00"),
+            ("International", "STANDARD", 5001, None, "35000.00"),
+            ("International", "EXPRESS", 0, 5000, "40000.00"),
+        ]
+
+        for (
+            zone_name,
+            method_code,
+            min_weight,
+            max_weight,
+            price,
+        ) in rates:
+            ShippingRate.objects.update_or_create(
+                zone=zones[zone_name],
+                method=methods[method_code],
+                min_weight_grams=min_weight,
+                max_weight_grams=max_weight,
+                defaults={
+                    "price": Decimal(price),
+                    "currency": xof,
+                    "is_active": True,
+                },
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Zones, modes et tarifs de livraison créés/mis à jour."
+            )
+        )
 
     # ==========================================================
     # PRODUCTS / VARIANTS
@@ -1193,6 +1455,89 @@ class Command(BaseCommand):
             )
         )
         
+    def seed_deliveries(self):
+        method = ShippingMethod.objects.filter(
+            code="STANDARD"
+        ).first()
+
+        if method is None:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Aucun mode de livraison standard : "
+                    "livraisons de test ignorées."
+                )
+            )
+            return
+
+        delivery_statuses = {
+            Order.Status.PENDING: Delivery.Status.PENDING,
+            Order.Status.CONFIRMED: Delivery.Status.PREPARING,
+            Order.Status.PROCESSING: Delivery.Status.PREPARING,
+        }
+
+        for reference in [
+            "CMD-SEED-000001",
+            "CMD-SEED-000002",
+            "CMD-SEED-000003",
+        ]:
+            order = Order.objects.filter(
+                reference=reference
+            ).first()
+
+            if order is None:
+                continue
+
+            delivery, created = Delivery.objects.get_or_create(
+                order=order,
+                defaults={
+                    "shipping_method": method,
+                    "status": delivery_statuses.get(
+                        order.status,
+                        Delivery.Status.PENDING,
+                    ),
+                    "estimated_delivery_date": (
+                        timezone.localdate()
+                        + timedelta(days=method.estimated_days)
+                    ),
+                    "tracking_number": (
+                        f"BOMBAA-{order.reference}"
+                        if order.status in [
+                            Order.Status.CONFIRMED,
+                            Order.Status.PROCESSING,
+                        ]
+                        else None
+                    ),
+                },
+            )
+
+            if (
+                not created
+                and delivery.shipping_method_id is None
+            ):
+                delivery.shipping_method = method
+                delivery.estimated_delivery_date = (
+                    timezone.localdate()
+                    + timedelta(days=method.estimated_days)
+                )
+                delivery.save(
+                    update_fields=[
+                        "shipping_method",
+                        "estimated_delivery_date",
+                        "updated_at",
+                    ]
+                )
+
+            self.stdout.write(
+                f"  → Livraison : {order.reference} "
+                f"({delivery.status})"
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Livraisons de test créées/mises à jour."
+            )
+        )
+
     def seed_payments(self):
         payments_data = [
             {

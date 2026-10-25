@@ -5,6 +5,8 @@ from django.utils.text import slugify
 
 from rest_framework import serializers
 
+from apps.geography.models import Country
+
 from .models import (
     Category, 
     Brand, 
@@ -117,6 +119,12 @@ class ProductSerializer(serializers.ModelSerializer):
         allow_blank=True,
     )
 
+    available_countries = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Country.objects.filter(is_active=True),
+        required=False,
+    )
+
     class Meta:
         model = Product
 
@@ -127,7 +135,9 @@ class ProductSerializer(serializers.ModelSerializer):
             "slug",
             "description",
             "base_price",
+            "weight_grams",
             "categories",
+            "available_countries",
             "is_active",
             "created_at",
             "updated_at",
@@ -199,6 +209,11 @@ class ProductSerializer(serializers.ModelSerializer):
             []
         )
 
+        available_countries = validated_data.pop(
+            "available_countries",
+            []
+        )
+
         product = Product.objects.create(
             **validated_data
         )
@@ -211,12 +226,22 @@ class ProductSerializer(serializers.ModelSerializer):
             for category in categories
         ])
 
+        if available_countries:
+            product.available_countries.set(
+                available_countries
+            )
+
         return product
 
     def update(self, instance, validated_data):
 
         categories = validated_data.pop(
             "categories",
+            None
+        )
+
+        available_countries = validated_data.pop(
+            "available_countries",
             None
         )
 
@@ -238,6 +263,11 @@ class ProductSerializer(serializers.ModelSerializer):
                 )
                 for category in categories
             ])
+
+        if available_countries is not None:
+            instance.available_countries.set(
+                available_countries
+            )
 
         return instance
 
@@ -553,6 +583,18 @@ def product_categories_data(product):
     ]
 
 
+def product_available_countries_data(product):
+
+    return [
+        {
+            "id": country.id,
+            "name": country.name,
+            "code": country.code,
+        }
+        for country in product.available_countries.all()
+    ]
+
+
 def product_primary_image_data(product):
 
     images = list(product.images.all())
@@ -578,6 +620,8 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     categories = serializers.SerializerMethodField()
 
+    available_countries = serializers.SerializerMethodField()
+
     primary_image = serializers.SerializerMethodField()
 
     price_min = serializers.DecimalField(
@@ -602,7 +646,9 @@ class ProductListSerializer(serializers.ModelSerializer):
             "slug",
             "brand",
             "categories",
+            "available_countries",
             "base_price",
+            "weight_grams",
             "price_min",
             "price_max",
             "primary_image",
@@ -613,6 +659,9 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     def get_categories(self, obj):
         return product_categories_data(obj)
+
+    def get_available_countries(self, obj):
+        return product_available_countries_data(obj)
 
     def get_primary_image(self, obj):
         return product_primary_image_data(obj)
@@ -626,6 +675,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     brand = BrandSummarySerializer(read_only=True)
 
     categories = serializers.SerializerMethodField()
+
+    available_countries = serializers.SerializerMethodField()
 
     images = ProductImageReadSerializer(
         many=True,
@@ -660,9 +711,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "slug",
             "description",
             "base_price",
+            "weight_grams",
             "price_min",
             "price_max",
             "categories",
+            "available_countries",
             "images",
             "variants",
             "in_stock",
@@ -673,6 +726,9 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
     def get_categories(self, obj):
         return product_categories_data(obj)
+
+    def get_available_countries(self, obj):
+        return product_available_countries_data(obj)
 
     def get_in_stock(self, obj):
         return product_is_in_stock(obj)

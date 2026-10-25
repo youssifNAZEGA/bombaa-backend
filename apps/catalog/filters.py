@@ -1,7 +1,8 @@
 import django_filters
 
-from django.db.models import Exists, F, OuterRef
+from django.db.models import Exists, F, OuterRef, Q
 
+from apps.geography.models import Country
 from apps.stocks.models import Stock
 
 from .models import (
@@ -62,6 +63,10 @@ class ProductFilter(django_filters.FilterSet):
         method="filter_attributes"
     )
 
+    country = django_filters.CharFilter(
+        method="filter_country"
+    )
+
     is_active = django_filters.BooleanFilter(
         field_name="is_active"
     )
@@ -75,6 +80,7 @@ class ProductFilter(django_filters.FilterSet):
             "price_max",
             "in_stock",
             "attributes",
+            "country",
             "is_active",
         ]
 
@@ -105,6 +111,29 @@ class ProductFilter(django_filters.FilterSet):
         return queryset.filter(
             ~Exists(available_stock)
         )
+
+    def filter_country(self, queryset, name, value):
+        value = str(value).strip()
+
+        if not value:
+            return queryset
+
+        countries = Country.objects.filter(is_active=True)
+
+        if value.isdigit():
+            country = countries.filter(pk=int(value)).first()
+        else:
+            country = countries.filter(
+                code__iexact=value
+            ).first()
+
+        if country is None:
+            return queryset.none()
+
+        return queryset.filter(
+            Q(available_countries__isnull=True)
+            | Q(available_countries=country)
+        ).distinct()
 
     def filter_attributes(self, queryset, name, value):
         """

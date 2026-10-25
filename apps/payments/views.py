@@ -3,12 +3,14 @@ import json
 import hmac
 from rest_framework.views import APIView
 from django.conf import settings
+from django.db.models import Q
 from decimal import Decimal
 
 from apps.accounts.permissions import (
     HasPermission,
     user_has_permission,
 )
+from apps.geography.models import Country
 from apps.orders.models import Order
 from .services import PaymentService
 from rest_framework import status, viewsets
@@ -37,6 +39,30 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
             or user_has_permission(user, "payments.update")
         ):
             queryset = queryset.filter(is_active=True)
+
+        country_value = self.request.query_params.get("country")
+
+        if country_value:
+            country_value = str(country_value).strip()
+
+            countries = Country.objects.filter(is_active=True)
+
+            if country_value.isdigit():
+                country = countries.filter(
+                    pk=int(country_value)
+                ).first()
+            else:
+                country = countries.filter(
+                    code__iexact=country_value
+                ).first()
+
+            if country is None:
+                return queryset.none()
+
+            queryset = queryset.filter(
+                Q(countries__isnull=True)
+                | Q(countries=country)
+            ).distinct()
 
         return queryset
 

@@ -8,8 +8,9 @@ from django.test import TestCase
 
 from apps.accounts.models import User
 from apps.catalog.models import Product, ProductVariant
+from apps.geography.models import Country, Currency
 from apps.stocks.models import Stock, StockMovement
-from apps.orders.models import Order, OrderItem
+from apps.orders.models import Order, OrderAddress, OrderItem
 from apps.payments.models import PaymentMethod, Payment, Transaction
 from apps.payments.services import PaymentService
 
@@ -736,3 +737,139 @@ class PaymentEndpointPermissionsTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class PaymentCountryMethodTests(APITestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="payment-country@example.com",
+            password="TestPassword123!",
+            first_name="Payment",
+            last_name="Country",
+            phone="+22890000033",
+        )
+
+        self.xof = Currency.objects.create(
+            code="XOF",
+            name="Franc CFA",
+            symbol="FCFA",
+            exchange_rate=Decimal("1.000000"),
+            is_base=True,
+        )
+
+        self.togo = Country.objects.create(
+            name="Togo",
+            code="TG",
+            phone_code="+228",
+            currency=self.xof,
+        )
+
+        self.france = Country.objects.create(
+            name="France",
+            code="FR",
+            phone_code="+33",
+            currency=self.xof,
+        )
+
+        self.mobile = PaymentMethod.objects.create(
+            name="Mobile Money pays",
+            code="COUNTRY_MOBILE",
+            is_active=True,
+        )
+
+        self.card = PaymentMethod.objects.create(
+            name="Carte pays",
+            code="COUNTRY_CARD",
+            is_active=True,
+        )
+
+        self.global_method = PaymentMethod.objects.create(
+            name="Espèces pays",
+            code="COUNTRY_CASH",
+            is_active=True,
+        )
+
+        self.togo.payment_methods.add(self.mobile)
+        self.france.payment_methods.add(self.card)
+
+        self.order = Order.objects.create(
+            user=self.user,
+            reference="CMD-PAYMENT-COUNTRY",
+            status=Order.Status.PENDING,
+            subtotal=Decimal("10000.00"),
+            shipping_cost=Decimal("0.00"),
+            discount_amount=Decimal("0.00"),
+            total_amount=Decimal("10000.00"),
+            currency="XOF",
+        )
+
+        OrderAddress.objects.create(
+            order=self.order,
+            recipient_name="Payment Country",
+            phone="+22890000033",
+            address_line1="1 rue du Test",
+            city="Lomé",
+            country_name="Togo",
+            country_code="TG",
+        )
+
+    def test_payment_method_list_filters_by_country(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get(
+            "/api/payment-methods/?country=TG"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {
+                method["code"]
+                for method in response.data["results"]
+            },
+            {"COUNTRY_MOBILE", "COUNTRY_CASH"},
+        )
+
+        response = self.client.get(
+            "/api/payment-methods/?country=FR"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {
+                method["code"]
+                for method in response.data["results"]
+            },
+            {"COUNTRY_CARD", "COUNTRY_CASH"},
+        )
+
+    def test_payment_rejects_method_restricted_to_another_country(self):
+        with self.assertRaisesRegex(ValueError, "Togo"):
+            PaymentService.create_payment(
+                order=self.order,
+                payment_method=self.card,
+            )
+
+        self.assertFalse(
+            Payment.objects.filter(order=self.order).exists()
+        )
+
+    def test_payment_accepts_method_assigned_to_order_country(self):
+        payment = PaymentService.create_payment(
+            order=self.order,
+            payment_method=self.mobile,
+        )
+
+        self.assertEqual(payment.payment_method, self.mobile)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+
+    def test_payment_accepts_global_method(self):
+        payment = PaymentService.create_payment(
+            order=self.order,
+            payment_method=self.global_method,
+        )
+
+        self.assertEqual(
+            payment.payment_method,
+            self.global_method,
+        )

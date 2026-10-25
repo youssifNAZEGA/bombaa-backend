@@ -9,6 +9,8 @@ from rest_framework.exceptions import PermissionDenied
 from apps.accounts.permissions import user_has_permission
 from apps.cart.models import Cart
 from apps.payments.models import Payment, Transaction
+from apps.shipping.models import Delivery
+from apps.shipping.services import ShippingService
 from apps.stocks.models import Stock, StockMovement
 
 from .models import Order, OrderAddress, OrderItem
@@ -64,6 +66,7 @@ class OrderService:
         *,
         user,
         address,
+        shipping_method=None,
         notes=None,
     ):
         """
@@ -155,11 +158,31 @@ class OrderService:
                 }
             )
 
-        # Les frais de livraison et les remises seront calculés
-        # par leurs modules dédiés (livraison / coupons).
-        # En attendant, ils restent à zéro et ne viennent jamais
-        # du client.
-        shipping_cost = Decimal("0.00")
+        total_weight_grams = sum(
+            (
+                (item_data["variant"].product.weight_grams or 0)
+                * item_data["cart_item"].quantity
+            )
+            for item_data in checked_items
+        )
+
+        country = ShippingService.resolve_country(address)
+
+        if shipping_method is not None and country is None:
+            raise ValueError(
+                "Aucun pays de livraison n'est associé "
+                "à cette adresse."
+            )
+
+        shipping_quote = ShippingService.quote(
+            country=country,
+            method=shipping_method,
+            weight_grams=total_weight_grams,
+        )
+
+        # Les remises seront calculées par le module coupons.
+        # Le client ne peut jamais imposer un montant.
+        shipping_cost = shipping_quote.cost
         discount_amount = Decimal("0.00")
 
         total_amount = (
@@ -168,15 +191,22 @@ class OrderService:
             - discount_amount
         )
 
+        order_currency = (
+            shipping_quote.currency.code
+            if shipping_quote.currency is not None
+            else "XOF"
+        )
+
         order = Order.objects.create(
             user=user,
             reference=cls.generate_reference(),
             status=Order.Status.PENDING,
             subtotal=subtotal,
             shipping_cost=shipping_cost,
+            shipping_weight_grams=total_weight_grams,
             discount_amount=discount_amount,
             total_amount=total_amount,
-            currency="XOF",
+            currency=order_currency,
             notes=notes,
         )
 
@@ -192,9 +222,22 @@ class OrderService:
             city=address.city,
             state=address.state,
             postal_code=address.postal_code,
-            country_name=address.country,
-            country_code="",
+            country_name=(
+                country.name if country else address.country
+            ),
+            country_code=country.code if country else "",
         )
+
+        if shipping_quote.method is not None:
+            Delivery.objects.create(
+                order=order,
+                shipping_method=shipping_quote.method,
+                estimated_delivery_date=(
+                    ShippingService.estimated_delivery_date(
+                        shipping_quote.method
+                    )
+                ),
+            )
 
         for item_data in checked_items:
             cart_item = item_data["cart_item"]

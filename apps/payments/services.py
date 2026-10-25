@@ -1,9 +1,11 @@
 from decimal import Decimal
 from uuid import uuid4
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.utils import timezone
 
+from apps.geography.models import Country
 from apps.orders.models import Order
 
 from .models import Payment, PaymentMethod, Transaction
@@ -286,6 +288,40 @@ class PaymentService:
             raise ValueError(
                 "Ce moyen de paiement est actuellement désactivé."
             )
+
+        # --------------------------------------------------
+        # 2 bis. Vérifier la disponibilité dans le pays
+        # --------------------------------------------------
+
+        try:
+            shipping_address = order.shipping_address
+        except ObjectDoesNotExist:
+            shipping_address = None
+
+        if (
+            shipping_address is not None
+            and shipping_address.country_code
+        ):
+            country = (
+                Country.objects
+                .filter(
+                    code__iexact=shipping_address.country_code,
+                    is_active=True,
+                )
+                .first()
+            )
+
+            if (
+                country is not None
+                and payment_method.countries.exists()
+                and not country.payment_methods.filter(
+                    pk=payment_method.pk
+                ).exists()
+            ):
+                raise ValueError(
+                    "Ce moyen de paiement n'est pas disponible "
+                    f"pour {country.name}."
+                )
 
         # --------------------------------------------------
         # 3. Vérifier qu'il n'existe pas déjà

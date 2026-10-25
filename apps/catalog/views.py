@@ -204,6 +204,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             .prefetch_related(
                 "images",
                 "product_categories__category",
+                "available_countries",
                 "variants__stock",
                 (
                     "variants__variant_attribute_values"

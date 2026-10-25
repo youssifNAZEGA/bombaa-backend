@@ -11,6 +11,7 @@ from apps.accounts.permissions import (
     user_has_permission,
 )
 from apps.addresses.models import Address
+from apps.shipping.models import ShippingMethod
 
 from .models import Order
 from .serializers import OrderSerializer
@@ -41,7 +42,10 @@ class OrderViewSet(viewsets.ViewSet):
         queryset = (
             Order.objects
             .prefetch_related("items")
-            .select_related("shipping_address")
+            .select_related(
+                "shipping_address",
+                "delivery__shipping_method",
+            )
         )
 
         if (
@@ -92,10 +96,37 @@ class OrderViewSet(viewsets.ViewSet):
             user=request.user,
         )
 
+        shipping_method = None
+        shipping_method_id = request.data.get(
+            "shipping_method_id"
+        )
+
+        if shipping_method_id:
+            try:
+                shipping_method = ShippingMethod.objects.get(
+                    pk=shipping_method_id,
+                    is_active=True,
+                )
+            except (
+                ShippingMethod.DoesNotExist,
+                TypeError,
+                ValueError,
+            ):
+                return Response(
+                    {
+                        "shipping_method_id": (
+                            "Mode de livraison introuvable "
+                            "ou désactivé."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
             order = OrderService.create_order(
                 user=request.user,
                 address=address,
+                shipping_method=shipping_method,
                 notes=request.data.get("notes"),
             )
 

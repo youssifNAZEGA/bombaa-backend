@@ -117,6 +117,21 @@ class Product(models.Model):
         ],
     )
 
+    weight_grams = models.PositiveIntegerField(
+        default=0,
+        help_text="Poids du produit en grammes.",
+    )
+
+    available_countries = models.ManyToManyField(
+        "geography.Country",
+        blank=True,
+        related_name="products",
+        help_text=(
+            "Laisser vide pour rendre le produit disponible "
+            "dans tous les pays."
+        ),
+    )
+
     is_active = models.BooleanField(
         default=True,
     )
