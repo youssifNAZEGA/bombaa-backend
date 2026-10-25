@@ -30,6 +30,10 @@ from apps.shipping.models import (
 from apps.cart.models import Cart, CartItem
 from apps.wishlist.models import Wishlist, WishlistItem
 from apps.orders.models import Order, OrderAddress, OrderItem
+from apps.notifications.models import (
+    Notification,
+    NotificationPreference,
+)
 from decimal import Decimal
 
 class Command(BaseCommand):
@@ -57,6 +61,7 @@ class Command(BaseCommand):
         self.seed_orders()
         self.seed_deliveries()
         self.seed_payments()
+        self.seed_notifications()
 
 
         self.stdout.write(
@@ -1613,4 +1618,88 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS("Paiements et transactions de test créés/mis à jour.")
+        )
+
+    def seed_notifications(self):
+        for user in User.objects.all():
+            NotificationPreference.objects.get_or_create(
+                user=user,
+            )
+
+        status_events = {
+            Order.Status.CONFIRMED: [
+                Notification.Event.PAYMENT_CONFIRMED,
+                Notification.Event.ORDER_CONFIRMED,
+            ],
+            Order.Status.PROCESSING: [
+                Notification.Event.PAYMENT_CONFIRMED,
+                Notification.Event.ORDER_CONFIRMED,
+                Notification.Event.ORDER_PROCESSING,
+            ],
+        }
+
+        for order in Order.objects.filter(
+            reference__startswith="CMD-SEED-"
+        ).select_related("user"):
+            self.create_seed_notification(
+                user=order.user,
+                event=Notification.Event.ORDER_CREATED,
+                title="Commande créée",
+                message=(
+                    f"Votre commande {order.reference} "
+                    "a bien été créée."
+                ),
+                order=order,
+            )
+
+            for event in status_events.get(order.status, []):
+                self.create_seed_notification(
+                    user=order.user,
+                    event=event,
+                    title=event.label,
+                    message=(
+                        f"Le statut de votre commande "
+                        f"{order.reference} a été mis à jour."
+                    ),
+                    order=order,
+                )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Notifications de démonstration créées/mises à jour."
+            )
+        )
+
+    @staticmethod
+    def create_seed_notification(
+        *,
+        user,
+        event,
+        title,
+        message,
+        order=None,
+    ):
+        notification = Notification.objects.filter(
+            user=user,
+            event=event,
+            order=order,
+        ).first()
+
+        if notification is not None:
+            return notification
+
+        return Notification.objects.create(
+            user=user,
+            event=event,
+            title=title,
+            message=message,
+            order=order,
+            data=(
+                {
+                    "order_id": order.id,
+                    "reference": order.reference,
+                }
+                if order is not None
+                else {}
+            ),
         )

@@ -8,6 +8,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from apps.accounts.permissions import user_has_permission
 from apps.cart.models import Cart
+from apps.notifications.services import NotificationService
 from apps.payments.models import Payment, Transaction
 from apps.shipping.models import Delivery
 from apps.shipping.services import ShippingService
@@ -268,6 +269,8 @@ class OrderService:
 
         cart.items.all().delete()
 
+        NotificationService.order_created(order)
+
         return order
 
     @classmethod
@@ -332,6 +335,8 @@ class OrderService:
             ]
         )
 
+        NotificationService.order_cancelled(order)
+
         return order
 
     @classmethod
@@ -359,6 +364,8 @@ class OrderService:
                 actor=actor,
             )
 
+        previous_status = order.status
+
         allowed_statuses = cls.STATUS_TRANSITIONS.get(
             order.status,
             set(),
@@ -376,6 +383,11 @@ class OrderService:
                 "status",
                 "updated_at",
             ]
+        )
+
+        NotificationService.order_status_changed(
+            order,
+            previous_status=previous_status,
         )
 
         return order

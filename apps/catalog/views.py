@@ -7,6 +7,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny
 
 from apps.accounts.permissions import HasPermission, user_has_permission
+from apps.notifications.services import NotificationService
 
 from .filters import ProductFilter
 from .models import (
@@ -264,6 +265,11 @@ class ProductViewSet(viewsets.ModelViewSet):
         return [
             HasPermission(permission)()
         ]
+
+    def perform_create(self, serializer):
+        product = serializer.save()
+
+        NotificationService.new_product(product)
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):

@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasPermission, user_has_permission
 from apps.geography.serializers import CountrySummarySerializer
+from apps.notifications.services import NotificationService
 
 from .models import (
     Delivery,
@@ -265,6 +266,23 @@ class DeliveryViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated()]
 
         return [HasPermission("shipping.update")()]
+
+    def perform_create(self, serializer):
+        delivery = serializer.save()
+
+        NotificationService.delivery_status_changed(
+            delivery,
+            previous_status=None,
+        )
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        delivery = serializer.save()
+
+        NotificationService.delivery_status_changed(
+            delivery,
+            previous_status=previous_status,
+        )
 
 
 class ShippingQuoteView(APIView):

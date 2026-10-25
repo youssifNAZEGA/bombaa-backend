@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 
 from apps.accounts.permissions import HasPermission
+from apps.notifications.services import NotificationService
 
 from .models import Stock, StockMovement
 
@@ -43,6 +44,23 @@ class StockViewSet(viewsets.ModelViewSet):
         return [
             HasPermission(permission)()
         ]
+
+    def perform_update(self, serializer):
+        previous_available = (
+            serializer.instance.quantity
+            - serializer.instance.reserved_quantity
+        )
+
+        stock = serializer.save()
+
+        current_available = (
+            stock.quantity - stock.reserved_quantity
+        )
+
+        if previous_available <= 0 < current_available:
+            NotificationService.back_in_stock(
+                stock.variant
+            )
 
 
 class StockMovementViewSet(viewsets.ModelViewSet):

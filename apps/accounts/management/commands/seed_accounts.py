@@ -95,6 +95,9 @@ class Command(BaseCommand):
             ("notifications.view", "Consulter les notifications"),
             ("notifications.create", "Créer une notification"),
 
+            # Tableau de bord
+            ("dashboard.view", "Consulter le tableau de bord"),
+
             # Support
             ("support.view", "Consulter le support"),
             ("support.create", "Créer un ticket support"),

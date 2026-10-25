@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.geography.models import Country
+from apps.notifications.services import NotificationService
 from apps.orders.models import Order
 
 from .models import Payment, PaymentMethod, Transaction
@@ -476,6 +477,9 @@ class PaymentService:
                 ]
             )
 
+        NotificationService.payment_succeeded(payment)
+        NotificationService.order_confirmed(order)
+
         return payment
 
     
@@ -544,6 +548,9 @@ class PaymentService:
                 ]
             )
 
+        NotificationService.payment_failed(payment)
+        NotificationService.order_cancelled(order)
+
         return payment
     
     
@@ -608,6 +615,8 @@ class PaymentService:
                     "transaction_date",
                 ]
             )
+
+        NotificationService.order_cancelled(order)
 
         return payment
 

@@ -119,6 +119,8 @@ INSTALLED_APPS = [
     'apps.orders',
     'apps.payments',
     'apps.shipping',
+    'apps.notifications',
+    'apps.dashboard',
 ]
 
 MIDDLEWARE = [

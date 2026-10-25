@@ -63,4 +63,14 @@ urlpatterns = [
         "api/",
         include("apps.shipping.urls")
     ),
+
+    path(
+        "api/",
+        include("apps.notifications.urls")
+    ),
+
+    path(
+        "api/",
+        include("apps.dashboard.urls")
+    ),
 ]
