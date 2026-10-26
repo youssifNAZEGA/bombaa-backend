@@ -88,4 +88,9 @@ urlpatterns = [
         "api/",
         include("apps.reviews.urls")
     ),
+
+    path(
+        "api/support/",
+        include("apps.support.urls")
+    ),
 ]

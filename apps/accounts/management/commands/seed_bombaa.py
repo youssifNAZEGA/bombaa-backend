@@ -36,6 +36,8 @@ from apps.notifications.models import (
 )
 from apps.promotions.models import Coupon, Promotion
 from apps.reviews.models import Review, ReviewImage
+from apps.support.models import FaqEntry, SupportEvent, SupportTicket
+from apps.support.services import SupportService
 from decimal import Decimal
 
 class Command(BaseCommand):
@@ -63,6 +65,7 @@ class Command(BaseCommand):
         self.seed_wishlists()
         self.seed_orders()
         self.seed_reviews()
+        self.seed_support()
         self.seed_deliveries()
         self.seed_payments()
         self.seed_notifications()
@@ -1683,6 +1686,230 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 "Avis de démonstration créés/mis à jour."
+            )
+        )
+
+    def seed_support(self):
+        admin = User.objects.get(email="admin@bombaa.com")
+
+        faq_entries = [
+            {
+                "question": "Comment passer une commande ?",
+                "answer": (
+                    "Ajoutez les produits souhaités à votre panier, "
+                    "puis rendez-vous dans le panier pour choisir "
+                    "votre adresse de livraison et votre moyen de "
+                    "paiement."
+                ),
+                "category": "Commandes",
+                "display_order": 10,
+            },
+            {
+                "question": "Quels sont les délais de livraison ?",
+                "answer": (
+                    "Les délais varient selon le pays et le mode de "
+                    "livraison choisi. Ils sont affichés au moment "
+                    "du paiement."
+                ),
+                "category": "Livraison",
+                "display_order": 20,
+            },
+            {
+                "question": (
+                    "Quels moyens de paiement acceptez-vous ?"
+                ),
+                "answer": (
+                    "BOMBAA accepte les paiements mobiles et les "
+                    "cartes bancaires selon les pays disponibles."
+                ),
+                "category": "Paiements",
+                "display_order": 30,
+            },
+            {
+                "question": "Comment suivre ma commande ?",
+                "answer": (
+                    "Depuis votre compte, ouvrez la commande "
+                    "concernée pour consulter son statut et son "
+                    "suivi de livraison."
+                ),
+                "category": "Livraison",
+                "display_order": 40,
+            },
+            {
+                "question": (
+                    "Comment demander un retour ou un remboursement ?"
+                ),
+                "answer": (
+                    "Créez une demande depuis le service client en "
+                    "précisant la commande concernée. Un agent vous "
+                    "répondra avec la procédure à suivre."
+                ),
+                "category": "Retours",
+                "display_order": 50,
+            },
+            {
+                "question": (
+                    "Comment contacter le service client ?"
+                ),
+                "answer": (
+                    "Utilisez le formulaire de contact du site ou "
+                    "écrivez-nous à l'adresse de support indiquée "
+                    "dans la rubrique contact."
+                ),
+                "category": "Support",
+                "display_order": 60,
+            },
+        ]
+
+        for data in faq_entries:
+            _entry, created = FaqEntry.objects.get_or_create(
+                question=data["question"],
+                defaults={
+                    "answer": data["answer"],
+                    "category": data["category"],
+                    "display_order": data["display_order"],
+                    "is_active": True,
+                },
+            )
+
+            if created:
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"FAQ créée : {data['question']}"
+                    )
+                )
+
+        tickets_data = [
+            {
+                "reference": "SUP-SEED-0001",
+                "email": "client1@bombaa.com",
+                "order_reference": "CMD-SEED-000001",
+                "type": SupportTicket.Type.RETURN,
+                "status": SupportTicket.Status.IN_PROGRESS,
+                "priority": SupportTicket.Priority.HIGH,
+                "subject": "Échange de taille pour le t-shirt",
+                "description": (
+                    "Bonjour, le t-shirt reçu est trop petit. "
+                    "Puis-je l'échanger contre une taille L ?"
+                ),
+            },
+            {
+                "reference": "SUP-SEED-0002",
+                "email": None,
+                "order_reference": None,
+                "type": SupportTicket.Type.QUESTION,
+                "status": SupportTicket.Status.OPEN,
+                "priority": SupportTicket.Priority.NORMAL,
+                "subject": "Délais de livraison au Sénégal",
+                "description": (
+                    "Bonjour, quels sont vos délais de livraison "
+                    "pour Dakar ? Merci."
+                ),
+                "contact_name": "Awa Diallo",
+                "contact_email": "awa.diallo@example.com",
+                "contact_phone": "+221770000000",
+            },
+            {
+                "reference": "SUP-SEED-0003",
+                "email": "client2@bombaa.com",
+                "order_reference": "CMD-SEED-000002",
+                "type": SupportTicket.Type.COMPLAINT,
+                "status": SupportTicket.Status.IN_PROGRESS,
+                "priority": SupportTicket.Priority.NORMAL,
+                "subject": "Article manquant dans la commande",
+                "description": (
+                    "Bonjour, il manquait un article dans ma "
+                    "commande. Pouvez-vous vérifier ?"
+                ),
+            },
+        ]
+
+        for data in tickets_data:
+            if SupportTicket.objects.filter(
+                reference=data["reference"]
+            ).exists():
+                self.stdout.write(
+                    f"Ticket existant conservé : {data['reference']}"
+                )
+                continue
+
+            user = None
+
+            if data["email"]:
+                user = User.objects.get(email=data["email"])
+
+            order = None
+
+            if data["order_reference"]:
+                order = Order.objects.filter(
+                    reference=data["order_reference"]
+                ).first()
+
+            if user is not None:
+                contact_name, contact_email = (
+                    SupportService.contact_snapshot(user)
+                )
+                contact_phone = user.phone
+            else:
+                contact_name = data["contact_name"]
+                contact_email = data["contact_email"]
+                contact_phone = data.get("contact_phone")
+
+            ticket = SupportTicket.objects.create(
+                reference=data["reference"],
+                user=user,
+                order=order,
+                type=data["type"],
+                status=data["status"],
+                priority=data["priority"],
+                subject=data["subject"],
+                description=data["description"],
+                contact_name=contact_name,
+                contact_email=contact_email,
+                contact_phone=contact_phone,
+                assigned_to=admin,
+            )
+
+            SupportService.record_event(
+                ticket=ticket,
+                action=SupportEvent.Action.CREATED,
+                actor=user,
+                new_status=ticket.status,
+                note="Ticket créé",
+            )
+
+            if ticket.reference == "SUP-SEED-0001":
+                SupportService.add_message(
+                    ticket=ticket,
+                    author=admin,
+                    body=(
+                        "Bonjour, nous avons bien reçu votre "
+                        "demande d'échange. Un agent vous "
+                        "contactera pour organiser le retour."
+                    ),
+                )
+
+            if ticket.reference == "SUP-SEED-0003":
+                SupportService.resolve(
+                    ticket=ticket,
+                    actor=admin,
+                    resolution=(
+                        "L'article manquant a été expédié. "
+                        "Nous vous prions de nous excuser pour "
+                        "la gêne occasionnée."
+                    ),
+                )
+
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Ticket créé : {ticket.reference} "
+                    f"({ticket.get_status_display()})"
+                )
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "FAQ et tickets de démonstration créés/mis à jour."
             )
         )
 

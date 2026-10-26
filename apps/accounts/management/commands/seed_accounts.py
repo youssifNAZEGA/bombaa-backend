@@ -118,6 +118,7 @@ class Command(BaseCommand):
             ("support.view", "Consulter le support"),
             ("support.create", "Créer un ticket support"),
             ("support.update", "Modifier un ticket support"),
+            ("support.manage", "Gérer le service client"),
         ]
 
         permission_objects = {}
@@ -304,6 +305,7 @@ class Command(BaseCommand):
                     "support.view",
                     "support.create",
                     "support.update",
+                    "support.manage",
                     "dashboard.view",
                 ],
             },

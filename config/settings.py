@@ -124,6 +124,7 @@ INSTALLED_APPS = [
     'apps.audit',
     'apps.promotions',
     'apps.reviews',
+    'apps.support',
 ]
 
 MIDDLEWARE = [
@@ -227,6 +228,26 @@ SIMPLE_JWT = {
 
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+
+# ---------------------------------------------------------------------------
+# Service client
+# ---------------------------------------------------------------------------
+
+SUPPORT_EMAIL = os.getenv(
+    "SUPPORT_EMAIL",
+    "support@bombaa.com",
+)
+
+SUPPORT_PHONE = os.getenv(
+    "SUPPORT_PHONE",
+    "+228 90 00 00 00",
+)
+
+SUPPORT_HOURS = os.getenv(
+    "SUPPORT_HOURS",
+    "Lundi au vendredi, de 8h à 18h",
+)
 
 
 # Internationalization
