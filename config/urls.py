@@ -83,4 +83,9 @@ urlpatterns = [
         "api/",
         include("apps.promotions.urls")
     ),
+
+    path(
+        "api/",
+        include("apps.reviews.urls")
+    ),
 ]

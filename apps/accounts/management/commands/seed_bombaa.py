@@ -35,6 +35,7 @@ from apps.notifications.models import (
     NotificationPreference,
 )
 from apps.promotions.models import Coupon, Promotion
+from apps.reviews.models import Review, ReviewImage
 from decimal import Decimal
 
 class Command(BaseCommand):
@@ -61,6 +62,7 @@ class Command(BaseCommand):
         self.seed_carts()
         self.seed_wishlists()
         self.seed_orders()
+        self.seed_reviews()
         self.seed_deliveries()
         self.seed_payments()
         self.seed_notifications()
@@ -1547,7 +1549,143 @@ class Command(BaseCommand):
                 "Commandes de test créées/mises à jour."
             )
         )
-        
+
+    def seed_reviews(self):
+        admin = User.objects.get(email="admin@bombaa.com")
+
+        reviews_data = [
+            {
+                "email": "client1@bombaa.com",
+                "reference": "CMD-SEED-000001",
+                "sku": "BOMBAA-TSH-NOIR-M",
+                "rating": 5,
+                "comment": (
+                    "T-shirt de très bonne qualité, la coupe est "
+                    "parfaite et la livraison a été rapide."
+                ),
+                "approved": True,
+                "images": [
+                    "https://picsum.photos/seed/bombaa-tshirt-1/600/600",
+                    "https://picsum.photos/seed/bombaa-tshirt-2/600/600",
+                ],
+            },
+            {
+                "email": "client2@bombaa.com",
+                "reference": "CMD-SEED-000002",
+                "sku": "BOMBAA-JEAN-BLEU-40",
+                "rating": 4,
+                "comment": (
+                    "Bon jean, tissu solide. La taille est "
+                    "légèrement grande, je conseille de prendre "
+                    "une taille en dessous."
+                ),
+                "approved": True,
+                "images": [
+                    "https://picsum.photos/seed/bombaa-jean-1/600/600",
+                ],
+            },
+            {
+                "email": "client2@bombaa.com",
+                "reference": "CMD-SEED-000002",
+                "sku": "BOMBAA-SAC-NOIR",
+                "rating": 5,
+                "comment": (
+                    "Sac spacieux et élégant, exactement ce que "
+                    "je cherchais."
+                ),
+                "approved": True,
+                "images": [],
+            },
+            {
+                "email": "client3@bombaa.com",
+                "reference": "CMD-SEED-000003",
+                "sku": "SAMSUNG-GALAXY-128-NOIR",
+                "rating": 5,
+                "comment": (
+                    "Téléphone conforme à la description, avis "
+                    "en attente de modération."
+                ),
+                "approved": False,
+                "images": [],
+            },
+        ]
+
+        for data in reviews_data:
+            user = User.objects.get(email=data["email"])
+
+            item = (
+                OrderItem.objects
+                .filter(
+                    order__reference=data["reference"],
+                    sku=data["sku"],
+                )
+                .select_related("variant__product")
+                .first()
+            )
+
+            if item is None or item.variant is None:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "Article introuvable pour l'avis : "
+                        f"{data['sku']}"
+                    )
+                )
+                continue
+
+            product = item.variant.product
+
+            review, created = Review.objects.get_or_create(
+                user=user,
+                product=product,
+                defaults={
+                    "order_item": item,
+                    "rating": data["rating"],
+                    "comment": data["comment"],
+                    "is_verified_purchase": True,
+                    "status": Review.Status.PENDING,
+                },
+            )
+
+            if not created:
+                self.stdout.write(
+                    f"Avis existant conservé : "
+                    f"{user.email} / {product.name}"
+                )
+                continue
+
+            if data["approved"]:
+                review.approve(
+                    moderator=admin,
+                    note="Avis de démonstration",
+                )
+
+            for index, image_url in enumerate(
+                data["images"],
+                start=1,
+            ):
+                ReviewImage.objects.get_or_create(
+                    review=review,
+                    image_url=image_url,
+                    defaults={
+                        "alt_text": (
+                            f"{product.name} - photo {index}"
+                        )
+                    },
+                )
+
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Avis créé : {user.email} / "
+                    f"{product.name} ({review.rating}/5)"
+                )
+            )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Avis de démonstration créés/mis à jour."
+            )
+        )
+
     def seed_deliveries(self):
         method = ShippingMethod.objects.filter(
             code="STANDARD"

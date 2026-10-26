@@ -80,6 +80,7 @@ class Command(BaseCommand):
             ("reviews.create", "Créer un avis"),
             ("reviews.update", "Modifier un avis"),
             ("reviews.delete", "Supprimer un avis"),
+            ("reviews.moderate", "Modérer les avis"),
 
             # Retours
             ("returns.view", "Consulter les retours"),
@@ -232,6 +233,8 @@ class Command(BaseCommand):
                     "products.create",
                     "products.update",
                     "products.delete",
+                    "reviews.view",
+                    "reviews.moderate",
                     "dashboard.view",
                 ],
             },
@@ -296,6 +299,8 @@ class Command(BaseCommand):
                     "users.view",
                     "orders.view",
                     "notifications.view",
+                    "reviews.view",
+                    "reviews.moderate",
                     "support.view",
                     "support.create",
                     "support.update",

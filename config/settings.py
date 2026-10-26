@@ -123,6 +123,7 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.audit',
     'apps.promotions',
+    'apps.reviews',
 ]
 
 MIDDLEWARE = [

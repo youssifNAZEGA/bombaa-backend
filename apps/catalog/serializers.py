@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from apps.geography.models import Country
 from apps.promotions.services import PromotionService
+from apps.reviews.services import ReviewService
 
 from .models import (
     Category, 
@@ -792,8 +793,35 @@ class PromotionDisplayMixin:
         )
 
 
+class ReviewDisplayMixin:
+    def _review_stats(self, obj):
+        average = getattr(obj, "average_rating", None)
+        count = getattr(obj, "review_count", None)
+
+        if average is None or count is None:
+            stats = ReviewService.stats_for_product(obj)
+            average = stats["average_rating"]
+            count = stats["review_count"]
+
+        return average, count
+
+    def get_average_rating(self, obj):
+        average, _count = self._review_stats(obj)
+
+        if average is None:
+            return "0.00"
+
+        return _money_string(average)
+
+    def get_review_count(self, obj):
+        _average, count = self._review_stats(obj)
+
+        return int(count or 0)
+
+
 class ProductListSerializer(
     PromotionDisplayMixin,
+    ReviewDisplayMixin,
     serializers.ModelSerializer,
 ):
 
@@ -828,6 +856,8 @@ class ProductListSerializer(
     price_max_after_discount = (
         serializers.SerializerMethodField()
     )
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -847,6 +877,8 @@ class ProductListSerializer(
             "promotion",
             "has_promotion",
             "discount_percentage",
+            "average_rating",
+            "review_count",
             "primary_image",
             "in_stock",
             "is_active",
@@ -868,6 +900,7 @@ class ProductListSerializer(
 
 class ProductDetailSerializer(
     PromotionDisplayMixin,
+    ReviewDisplayMixin,
     serializers.ModelSerializer,
 ):
 
@@ -910,6 +943,8 @@ class ProductDetailSerializer(
     price_max_after_discount = (
         serializers.SerializerMethodField()
     )
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -928,6 +963,8 @@ class ProductDetailSerializer(
             "promotion",
             "has_promotion",
             "discount_percentage",
+            "average_rating",
+            "review_count",
             "categories",
             "available_countries",
             "images",

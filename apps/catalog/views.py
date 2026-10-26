@@ -1,16 +1,20 @@
-from django.db.models import F, Max, Min, Q
+from django.db.models import Avg, Count, F, Max, Min, Q
 from django.db.models.functions import Coalesce
 from django_filters.rest_framework import DjangoFilterBackend
 
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 from apps.accounts.permissions import HasPermission, user_has_permission
 from apps.audit.models import AuditLog
 from apps.audit.services import AuditService
 from apps.notifications.services import NotificationService
 from apps.promotions.services import PromotionService
+from apps.reviews.models import Review
+from apps.reviews.serializers import ReviewSerializer
 from apps.shipping.services import ShippingService
 
 from .filters import ProductFilter
@@ -231,6 +235,19 @@ class ProductViewSet(viewsets.ModelViewSet):
                     ),
                     F("base_price"),
                 ),
+                average_rating=Avg(
+                    "reviews__rating",
+                    filter=Q(
+                        reviews__status=Review.Status.APPROVED
+                    ),
+                ),
+                review_count=Count(
+                    "reviews",
+                    filter=Q(
+                        reviews__status=Review.Status.APPROVED
+                    ),
+                    distinct=True,
+                ),
             )
             .distinct()
         )
@@ -269,7 +286,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
 
-        if self.action in ["list", "retrieve"]:
+        if self.action in ["list", "retrieve", "reviews"]:
             return [AllowAny()]
 
         if self.action == "create":
@@ -287,6 +304,32 @@ class ProductViewSet(viewsets.ModelViewSet):
         return [
             HasPermission(permission)()
         ]
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="reviews",
+    )
+    def reviews(self, request, pk=None):
+        product = self.get_object()
+
+        queryset = (
+            Review.objects
+            .filter(
+                product=product,
+                status=Review.Status.APPROVED,
+            )
+            .select_related("user")
+            .prefetch_related("images")
+        )
+
+        serializer = ReviewSerializer(
+            queryset,
+            many=True,
+            context=self.get_serializer_context(),
+        )
+
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         product = serializer.save()
