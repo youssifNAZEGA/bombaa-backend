@@ -54,6 +54,8 @@ class OrderService:
         },
         Order.Status.CANCELLED: set(),
         Order.Status.COMPLETED: set(),
+        Order.Status.RETURNED: set(),
+        Order.Status.REFUNDED: set(),
     }
 
     # Statuts depuis lesquels une annulation est possible.

@@ -125,6 +125,7 @@ INSTALLED_APPS = [
     'apps.promotions',
     'apps.reviews',
     'apps.support',
+    'apps.returns',
 ]
 
 MIDDLEWARE = [

@@ -15,6 +15,8 @@ class Order(models.Model):
         DELIVERED = "DELIVERED", "Livrée"
         CANCELLED = "CANCELLED", "Annulée"
         COMPLETED = "COMPLETED", "Terminée"
+        RETURNED = "RETURNED", "Retournée"
+        REFUNDED = "REFUNDED", "Remboursée"
 
     user = models.ForeignKey(
         User,

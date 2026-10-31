@@ -93,4 +93,9 @@ urlpatterns = [
         "api/support/",
         include("apps.support.urls")
     ),
+
+    path(
+        "api/",
+        include("apps.returns.urls")
+    ),
 ]
